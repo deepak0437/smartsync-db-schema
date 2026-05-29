@@ -1,0 +1,12 @@
+# Academic Service — Python Dependencies
+
+# Core ORM
+sqlalchemy==2.0.30
+alembic==1.13.1
+
+# Async PostgreSQL driver
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# Environment
+python-dotenv==1.0.1
