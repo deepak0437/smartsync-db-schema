@@ -154,9 +154,9 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 ```bash
 cd auth-service
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 ### Step 3 — Set Environment Variable

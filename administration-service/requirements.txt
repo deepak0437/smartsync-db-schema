@@ -1,4 +1,4 @@
-# Academic Service — Python Dependencies
+# Administration Service — Python Dependencies
 
 # Core ORM
 sqlalchemy>=2.0.41

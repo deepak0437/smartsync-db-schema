@@ -1,5 +1,5 @@
 """
-Platform Service — Import all models so Alembic autogenerate can detect them.
+Notification Service — Import all models so Alembic autogenerate can detect them.
 This file must be imported in alembic/env.py target_metadata.
 """
 # Import Base first

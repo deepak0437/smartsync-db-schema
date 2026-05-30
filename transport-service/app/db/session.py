@@ -1,5 +1,5 @@
 """
-Platform Service — Database session configuration.
+Transport Service — Database session configuration.
 Uses async SQLAlchemy 2.x with asyncpg driver.
 """
 import os
@@ -18,8 +18,8 @@ from sqlalchemy.ext.asyncio import (
 # Set via environment variable in production.
 # Default points to local dev database.
 DATABASE_URL: str = os.getenv(
-    "PLATFORM_DATABASE_URL",
-    "postgresql+asyncpg://smartsync:smartsync@localhost:5432/smartsync_platform",
+    "TRANSPORT_DATABASE_URL",
+    "postgresql+asyncpg://smartsync:smartsync@localhost:5432/smartsync_transport",
 )
 
 # ---------------------------------------------------------------------------
@@ -34,8 +34,8 @@ engine = create_async_engine(
     pool_recycle=3600,          # Recycle connections every 1 hour
     connect_args={
         "server_settings": {
-            "search_path": "platform",          # Default schema for platform service
-            "application_name": "smartsync-platform-service",
+            "search_path": "transport",          # Default schema for transport service
+            "application_name": "smartsync-transport-service",
         }
     },
 )
@@ -85,6 +85,6 @@ async def init_db() -> None:
     from .base_all import metadata  # noqa: F401 — ensure all models are imported
     from .base import Base
     async with engine.begin() as conn:
-        # Ensure the 'platform' schema exists
-        await conn.execute(__import__("sqlalchemy").text("CREATE SCHEMA IF NOT EXISTS platform"))
+        # Ensure the 'transport' schema exists
+        await conn.execute(__import__("sqlalchemy").text("CREATE SCHEMA IF NOT EXISTS transport"))
         await conn.run_sync(Base.metadata.create_all)

@@ -1,15 +1,15 @@
 # Auth Service — Python Dependencies
 
 # Core ORM
-sqlalchemy==2.0.30
-alembic==1.13.1
+sqlalchemy>=2.0.41
+alembic>=1.16.0
 
 # Async PostgreSQL driver
-asyncpg==0.29.0
-psycopg2-binary==2.9.9     # Sync driver for Alembic
+asyncpg>=0.30.0
+psycopg[binary]>=3.2.10     # Sync driver for Alembic
 
 # Environment
-python-dotenv==1.0.1
+python-dotenv>=1.1.0
 
 # Utilities
 uuid==1.30
