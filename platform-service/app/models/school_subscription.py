@@ -266,10 +266,4 @@ class SchoolSubscription(BaseModel):
             f"<SchoolSubscription "
             f"school_id={self.school_id} "
             f"status={self.status}>"
-        default=0,
-    )
-
-    # remove active_student_count
-    # active_user_count
-    # active_role_count
-    # used_storage_gb
+        )
