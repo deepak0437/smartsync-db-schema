@@ -1,19 +1,54 @@
 """
-User Model — Auth Service
+Auth Service — User Models
 
-Stores ONLY identity and security data.
-Business information (DOB, address, qualification) lives in domain services:
-  - Student details → Academic Service (StudentProfile)
-  - Teacher details → HR Service (EmployeeProfile)
-  - Parent details  → Academic Service (ParentProfile)
+Three tables. One file. One concern per table.
 
-Multi-Tenancy Model:
-  Users belong to both a Tenant (org boundary) and a School (operational boundary).
-  username is unique within a (tenant_id, school_id) scope.
+┌─────────────────────────────────────────────────────────────────────┐
+│                       auth.users                                    │
+│  Identity anchor — rarely changes after creation                    │
+│  username · email · phone · display_name · is_active · 2FA flags   │
+├─────────────────────────────────────────────────────────────────────┤
+│                   auth.user_credentials                             │
+│  Password state — changes only on reset / expiry                    │
+│  password_hash · password_salt · must_change · expires_at           │
+├─────────────────────────────────────────────────────────────────────┤
+│                    auth.user_security                               │
+│  Live counters — changes on every failed login attempt              │
+│  failed_login_attempts · is_locked · locked_until · last_login_*   │
+└─────────────────────────────────────────────────────────────────────┘
 
-No-Signup Architecture:
-  Users are always created by a School Admin.
-  There is no self-registration flow.
+Why three tables instead of one?
+---------------------------------
+Postgres uses MVCC (Multi-Version Concurrency Control).
+Every UPDATE creates a new full row version — the old version stays
+on disk until VACUUM cleans it up.
+
+  - users: login, display_name, email almost never change.
+    Low-churn. Fits perfectly in buffer cache. Rarely bloated.
+
+  - user_credentials: password_hash changes maybe once a year.
+    Separating it means password resets don't bloat the identity row.
+
+  - user_security: failed_login_attempts resets on every login.
+    At 500,000 users with brute-force protection this table gets
+    a lot of tiny writes. Keeping it separate means those rapid
+    counter updates never bloat the identity or password rows.
+
+Login hot-path (read):
+    Two queries — users + user_security (or a single JOIN, still fast).
+    Credentials only fetched after username/lock checks pass.
+
+No user_type column:
+    Removed. The primary UserRole record tells you the person's
+    category (STUDENT, TEACHER, etc.). The API layer reads the
+    primary role to route profile fetches to the right domain service.
+
+Multi-Tenancy:
+    Users are scoped to (tenant_id, school_id).
+    A parent with children in two schools has two rows in each table.
+
+No public signup:
+    All users created by School Admin.
 """
 
 from sqlalchemy import (
@@ -21,32 +56,45 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from .base import BaseModel
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# TABLE 1 — USERS
+# Identity anchor. Rarely mutated after creation.
+# ═══════════════════════════════════════════════════════════════════════════════
+
 class User(BaseModel):
     """
-    Central identity table for ALL users across all roles.
+    Identity record — one row per person per school.
+
+    Holds only stable identity fields:
+        - Login handle (username)
+        - Contact channels (email, phone)
+        - Display name and avatar
+        - Account active flag
+        - 2FA on/off state (secrets live in user_mfa)
+
+    Does NOT hold:
+        - Password fields         → user_credentials
+        - Failed attempt counters → user_security
+        - Business data           → domain services (academic, hr, etc.)
 
     Username conventions (set at creation, never changed):
-        STUDENT      → Admission Number         (e.g. "ADM-2024-001")
-        TEACHER      → Employee Code            (e.g. "EMP-0042")
-        PARENT       → Auto-generated           (e.g. "PAR-0091")
-        ADMIN        → Email prefix             (e.g. "principal@gvs")
-        SUPER_ADMIN  → Assigned by Platform     (e.g. "admin@smartsync")
-
-    Scope:
-        username is unique within (tenant_id, school_id).
-        The same person (e.g. a parent with children in two schools)
-        has TWO separate user rows — one per school.
+        STUDENT  → Admission Number   ADM-2024-001
+        TEACHER  → Employee Code      EMP-0042
+        PARENT   → System-generated   PAR-20240901-7391
+        ADMIN    → Assigned by staff  admin.greenvalley
+        STAFF    → Employee Code      STF-0019
     """
 
     __tablename__ = "users"
@@ -59,23 +107,28 @@ class User(BaseModel):
             "tenant_id", "school_id", "email",
             name="uq_auth_user_email",
         ),
+        # Primary login lookup
+        Index("ix_auth_user_login", "school_id", "username", "is_deleted"),
+        # List all active users in a school
+        Index("ix_auth_user_school_active", "school_id", "is_active", "is_deleted"),
         {
             "schema": "auth",
             "comment": (
-                "Central identity table. One row per user per school. "
-                "No business data stored here."
+                "User identity anchor. One row per person per school. "
+                "Low-churn: only stable identity fields. "
+                "Credentials and security counters are in satellite tables."
             ),
         },
     )
 
-    # ── Tenant & School Scoping ────────────────────────────────────────────────
+    # ── Scoping ────────────────────────────────────────────────────────────────
     tenant_id = Column(
         UUID(as_uuid=True),
         nullable=False,
         index=True,
         comment=(
-            "Owning tenant (organization). Soft FK → platform.tenants.id. "
-            "Not a hard FK to avoid cross-service constraints."
+            "Org boundary. Soft FK → platform.tenants.id. "
+            "No hard FK — avoid cross-service constraint."
         ),
     )
     school_id = Column(
@@ -83,186 +136,98 @@ class User(BaseModel):
         nullable=False,
         index=True,
         comment=(
-            "Owning school (operational unit). Soft FK → platform.schools.id. "
-            "Users exist at school scope, not just tenant scope."
+            "School boundary. Soft FK → platform.schools.id. "
+            "RBAC and billing are scoped here, not at tenant level."
         ),
     )
 
-    # ── Authentication Credentials ────────────────────────────────────────────
+    # ── Login Handle ──────────────────────────────────────────────────────────
     username = Column(
         String(100),
         nullable=False,
-        index=True,
-        comment="Unique login username within the school scope",
+        comment="Unique login handle within the school. Immutable after creation.",
     )
+
+    # ── Contact Channels ──────────────────────────────────────────────────────
     email = Column(
         String(255),
         nullable=True,
-        index=True,
-        comment="Optional email. Used for password reset and notifications.",
+        comment="Optional. Used for password reset and notifications.",
     )
     phone = Column(
         String(20),
         nullable=True,
         index=True,
-        comment="Optional phone number. Used for SMS OTP.",
-    )
-    password_hash = Column(
-        Text,
-        nullable=False,
-        comment="Argon2id hash of the password",
-    )
-    password_salt = Column(
-        Text,
-        nullable=False,
-        comment="Unique per-user cryptographic salt",
+        comment="Optional. Used for SMS OTP.",
     )
 
-    # ── User Type ─────────────────────────────────────────────────────────────
-    user_type = Column(
-        String(30),
-        nullable=False,
-        index=True,
-        comment=(
-            "Broad user category. Determines which domain service holds "
-            "their business profile. "
-            "STUDENT | TEACHER | PARENT | ADMIN | SUPER_ADMIN | STAFF"
-        ),
-    )
-
-    # ── Display Identity (minimal — no business data) ─────────────────────────
+    # ── Display ───────────────────────────────────────────────────────────────
     display_name = Column(
         String(255),
         nullable=False,
         comment=(
-            "Human-readable name shown in UI. Synced from domain service "
-            "profile on creation. E.g. 'Rahul Sharma'"
+            "Name shown in UI. Synced from domain service at creation. "
+            "E.g. 'Rahul Sharma'. Not the legal-name source of truth."
         ),
     )
     avatar_url = Column(
         Text,
         nullable=True,
-        comment="Profile picture CDN URL (from Media Service)",
+        comment="CDN URL of profile picture. Managed by media-service.",
     )
 
-    # ── Preferences ───────────────────────────────────────────────────────────
-    language_preference = Column(
-        String(10),
-        nullable=False,
-        default="en",
-        comment="ISO 639-1 language code. E.g. 'en', 'hi', 'ta'",
-    )
-    timezone = Column(
-        String(50),
-        nullable=False,
-        default="Asia/Kolkata",
-        comment="User timezone for displaying timestamps",
-    )
-
-    # ── Account Status ────────────────────────────────────────────────────────
+    # ── Account Gate ──────────────────────────────────────────────────────────
     is_active = Column(
         Boolean,
         nullable=False,
         default=True,
         index=True,
-        comment="False = account disabled (deactivated by admin)",
+        comment="False = deactivated by admin. User cannot log in.",
     )
     is_verified = Column(
         Boolean,
         nullable=False,
         default=False,
-        comment="True after email/phone OTP verification",
-    )
-    is_locked = Column(
-        Boolean,
-        nullable=False,
-        default=False,
-        comment="True after too many failed login attempts",
-    )
-    is_password_expired = Column(
-        Boolean,
-        nullable=False,
-        default=False,
-        comment="True when password has passed its expiry date",
-    )
-    must_change_password = Column(
-        Boolean,
-        nullable=False,
-        default=True,
-        comment=(
-            "True on first login — user must set their own password "
-            "before accessing the system."
-        ),
-    )
-
-    # ── Login Security ─────────────────────────────────────────────────────────
-    failed_login_attempts = Column(
-        Integer,
-        nullable=False,
-        default=0,
-        comment="Consecutive failed login attempts since last success",
-    )
-    last_login_at = Column(
-        DateTime(timezone=True),
-        nullable=True,
-        comment="Timestamp of most recent successful login",
-    )
-    last_login_ip = Column(
-        String(45),
-        nullable=True,
-        comment="IP address of most recent successful login (IPv4 or IPv6)",
-    )
-    last_password_change_at = Column(
-        DateTime(timezone=True),
-        nullable=True,
-        comment="When the user last changed their password",
-    )
-    password_expires_at = Column(
-        DateTime(timezone=True),
-        nullable=True,
-        comment="Timestamp after which the password must be changed",
-    )
-    account_locked_until = Column(
-        DateTime(timezone=True),
-        nullable=True,
-        comment="Lockout expiry. Null = not locked or permanent lock.",
+        comment="True after email or phone OTP is confirmed.",
     )
     email_verified_at = Column(
         DateTime(timezone=True),
         nullable=True,
-        comment="When email OTP was verified. Null = not verified.",
     )
     phone_verified_at = Column(
         DateTime(timezone=True),
         nullable=True,
-        comment="When phone OTP was verified. Null = not verified.",
     )
 
-    # ── Two-Factor Authentication ─────────────────────────────────────────────
+    # ── 2FA State Flags ───────────────────────────────────────────────────────
+    # Flags live here (read on every login). Secrets live in user_mfa.
     two_factor_enabled = Column(
         Boolean,
         nullable=False,
         default=False,
-        comment="Whether 2FA is enabled for this user",
+        comment="2FA is enabled. Check user_mfa for the active secret.",
     )
     two_factor_method = Column(
         String(10),
         nullable=True,
-        comment="Active 2FA method: SMS | EMAIL | TOTP",
-    )
-
-    # ── Flexible Storage ──────────────────────────────────────────────────────
-    extra_metadata = Column(
-        JSONB,
-        nullable=False,
-        default=dict,
-        comment=(
-            "Extensible key-value store for future fields. "
-            "E.g. {sso_google_sub: '...', impersonated_from: '...'}"
-        ),
+        comment="Active 2FA channel: SMS | EMAIL | TOTP. Null if disabled.",
     )
 
     # ── Relationships ──────────────────────────────────────────────────────────
+    credentials = relationship(
+        "UserCredentials",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+        lazy="select",
+    )
+    security = relationship(
+        "UserSecurity",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+        lazy="select",
+    )
     user_roles = relationship(
         "UserRole",
         back_populates="user",
@@ -274,7 +239,7 @@ class User(BaseModel):
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    mfa_settings = relationship(
+    mfa_configs = relationship(
         "UserMFA",
         back_populates="user",
         cascade="all, delete-orphan",
@@ -300,10 +265,209 @@ class User(BaseModel):
         cascade="all, delete-orphan",
         foreign_keys="PasswordHistory.user_id",
     )
-
     def __repr__(self) -> str:
         return (
             f"<User username={self.username!r} "
-            f"type={self.user_type} "
-            f"school_id={self.school_id}>"
+            f"school_id={self.school_id} "
+            f"active={self.is_active}>"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TABLE 2 — USER CREDENTIALS
+# Password state. Changes only on reset / expiry. Low write frequency.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class UserCredentials(BaseModel):
+    """
+    Password hash and policy state — one row per user.
+
+    Separated from users so password resets don't cause MVCC bloat
+    on the identity row. Password changes ~1-2 times per year per user.
+
+    The password_hash uses Argon2id. The salt is embedded in the hash
+    string by the Argon2id spec, but stored separately here for explicit
+    access during verification.
+
+    This row is fetched AFTER the lock-check passes in user_security.
+    If the account is locked, we never touch this table at all.
+    """
+
+    __tablename__ = "user_credentials"
+    __table_args__ = {
+        "schema": "auth",
+        "comment": (
+            "Password hash and policy flags. 1-to-1 with users. "
+            "Separated to prevent password resets bloating the identity row."
+        ),
+    }
+
+    # ── Parent FK ─────────────────────────────────────────────────────────────
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("auth.users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="FK → auth.users.id",
+    )
+
+    # ── Password Hash ─────────────────────────────────────────────────────────
+    password_hash = Column(
+        Text,
+        nullable=False,
+        comment=(
+            "Argon2id hash of the password. "
+            "Format: $argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>"
+        ),
+    )
+    password_salt = Column(
+        Text,
+        nullable=False,
+        comment="Per-user salt. Embedded in Argon2id output but stored explicitly.",
+    )
+
+    # ── Password Policy ───────────────────────────────────────────────────────
+    must_change_password = Column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment=(
+            "True on first login or after admin reset. "
+            "User must set a new password before accessing the system."
+        ),
+    )
+    is_password_expired = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="True when password has passed its expiry date.",
+    )
+    password_changed_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When the user last changed their password.",
+    )
+    password_expires_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When the current password expires. Null = no expiry policy.",
+    )
+
+    # ── Relationship ──────────────────────────────────────────────────────────
+    user = relationship(
+        "User",
+        back_populates="credentials",
+        foreign_keys=[user_id],
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<UserCredentials user_id={self.user_id} "
+            f"expired={self.is_password_expired} "
+            f"must_change={self.must_change_password}>"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TABLE 3 — USER SECURITY
+# Live counters. Updated on every login attempt. High write frequency.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class UserSecurity(BaseModel):
+    """
+    Brute-force protection counters and lock state — one row per user.
+
+    This is the MOST frequently written table in the auth service.
+    failed_login_attempts is incremented on every failed attempt and
+    reset to 0 on every success. At 500K users, keeping these small
+    integer updates isolated means the MVCC dead-tuple bloat from
+    these rapid writes stays on this narrow table, not on the wide
+    users row.
+
+    Login sequence:
+        1. SELECT users WHERE username = ? AND school_id = ?    (users)
+        2. SELECT * FROM user_security WHERE user_id = ?        (this table)
+           → if is_locked AND locked_until > NOW(): reject early
+        3. SELECT password_hash FROM user_credentials ...       (credentials)
+           → verify password
+        4. On success: reset failed_login_attempts, set last_login_*
+        5. On failure: increment failed_login_attempts, maybe set is_locked
+    """
+
+    __tablename__ = "user_security"
+    __table_args__ = (
+        Index("ix_auth_user_security_locked", "is_locked", "locked_until"),
+        {
+            "schema": "auth",
+            "comment": (
+                "Brute-force protection state. 1-to-1 with users. "
+                "High-churn: updated on every login attempt. "
+                "Separated to prevent rapid writes bloating the identity row."
+            ),
+        },
+    )
+
+    # ── Parent FK ─────────────────────────────────────────────────────────────
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("auth.users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="FK → auth.users.id",
+    )
+
+    # ── Brute-Force Counters ──────────────────────────────────────────────────
+    failed_login_attempts = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment=(
+            "Consecutive failures since last success. "
+            "Reset to 0 on success. "
+            "Triggers lock when it exceeds the school's threshold (default: 5)."
+        ),
+    )
+    is_locked = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        index=True,
+        comment="True = account is locked. Check locked_until for auto-unlock time.",
+    )
+    locked_until = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment=(
+            "When the lock expires. "
+            "Null = not locked, or permanent admin-lock. "
+            "If locked_until < NOW() the lock is lifted automatically."
+        ),
+    )
+
+    # ── Last Login Snapshot ───────────────────────────────────────────────────
+    last_login_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Timestamp of most recent successful login.",
+    )
+    last_login_ip = Column(
+        String(45),
+        nullable=True,
+        comment="IP of most recent successful login. IPv4 or IPv6.",
+    )
+
+    # ── Relationship ──────────────────────────────────────────────────────────
+    user = relationship(
+        "User",
+        back_populates="security",
+        foreign_keys=[user_id],
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<UserSecurity user_id={self.user_id} "
+            f"locked={self.is_locked} "
+            f"attempts={self.failed_login_attempts}>"
         )
