@@ -669,3 +669,133 @@ class UserRole(BaseModel):
             f"role_id={self.role_id} "
             f"school_id={self.school_id}>"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LAYER 7 — SCHOOL ROLE STATISTICS (Real-time User Count per Role)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class SchoolRoleStats(BaseModel):
+    """
+    Real-time aggregate user count per role per school.
+
+    Automatically maintained by PostgreSQL triggers on user_roles table.
+    Provides instant visibility into role distribution across the school.
+
+    Purpose:
+        - Track how many users have each role in a school
+        - Monitor subscription usage per role type
+        - Generate role-based analytics and reports
+        - Support Platform Service subscription limit checks
+
+    Updated by triggers when:
+        - New user assigned to role (INSERT on user_roles)
+        - User role removed (DELETE on user_roles)
+        - User status changes (UPDATE on users.is_active)
+        - User soft deleted (UPDATE on users.is_deleted)
+
+    Examples:
+        School A:
+            STUDENT role      → 3890 total, 3850 active
+            TEACHER role      →   45 total,   43 active
+            PARENT role       → 3500 total, 3450 active
+            PRINCIPAL role    →    2 total,    2 active
+            LIBRARIAN role    →    1 total,    1 active
+
+    Use cases:
+        1. Admin Dashboard: "You have 45 teachers, 3890 students"
+        2. Subscription Check: "Students: 3890 / 5000 (78% used)"
+        3. Analytics: "Teacher count increased by 5 this month"
+        4. Billing: "Calculate per-user pricing based on role breakdown"
+    """
+
+    __tablename__ = "school_role_stats"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "school_id", "role_id",
+            name="uq_auth_school_role_stats",
+        ),
+        Index("ix_auth_srs_school", "school_id"),
+        Index("ix_auth_srs_role", "role_id"),
+        Index("ix_auth_srs_school_role", "school_id", "role_id"),
+        {
+            "schema": "auth",
+            "comment": (
+                "Real-time user count per role per school. "
+                "Automatically updated by triggers on user_roles and users tables. "
+                "Single source of truth for role-based subscription usage."
+            ),
+        },
+    )
+
+    # ── Scoping ────────────────────────────────────────────────────────────────
+    tenant_id = Column(
+        UUID(as_uuid=True),
+        nullable=False,
+        index=True,
+        comment="Org boundary. Soft FK → platform.tenants.id",
+    )
+    school_id = Column(
+        UUID(as_uuid=True),
+        nullable=False,
+        index=True,
+        comment="School boundary. Soft FK → platform.schools.id",
+    )
+    role_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("auth.roles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="Platform role ID. FK → auth.roles.id",
+    )
+
+    # ── Counters ───────────────────────────────────────────────────────────────
+    total_users = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment=(
+            "Total users assigned to this role (including inactive/deleted). "
+            "Counts all user_roles records regardless of user.is_active or user.is_deleted."
+        ),
+    )
+    active_users = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment=(
+            "Active users with this role. "
+            "WHERE user.is_active = true AND user.is_deleted = false AND user_role.is_active = true."
+        ),
+    )
+    inactive_users = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment=(
+            "Inactive users with this role. "
+            "WHERE user.is_active = false AND user.is_deleted = false."
+        ),
+    )
+    deleted_users = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment=(
+            "Soft deleted users who had this role. "
+            "WHERE user.is_deleted = true."
+        ),
+    )
+
+    # ── Relationships ──────────────────────────────────────────────────────────
+    role = relationship(
+        "Role",
+        foreign_keys=[role_id],
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<SchoolRoleStats school_id={self.school_id} "
+            f"role_id={self.role_id} "
+            f"total={self.total_users} active={self.active_users}>"
+        )

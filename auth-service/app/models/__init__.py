@@ -21,8 +21,12 @@ RBAC — School Layer (customized per school):
     school_role_permissions  School's effective permission set per role
 
 RBAC — User Assignment:
-    user_roles   Multi-role assignments per user per school.
-                 Primary role drives domain service routing.
+    user_roles          Multi-role assignments per user per school.
+                        Primary role drives domain service routing.
+
+RBAC — Statistics:
+    school_role_stats   Real-time user count per role per school.
+                        Updated by triggers. Used for subscription monitoring.
 
 Sessions & MFA:
     user_sessions   Active JWT / refresh token sessions
@@ -62,6 +66,7 @@ from .role import (
     SchoolRole,
     SchoolRolePermission,
     UserRole,
+    SchoolRoleStats,
 )
 
 # ── Sessions, MFA, Devices, Password Flow ─────────────────────────────────────
@@ -94,6 +99,8 @@ __all__ = [
     "SchoolRolePermission",
     # RBAC — Assignment
     "UserRole",
+    # RBAC — Statistics
+    "SchoolRoleStats",
     # Sessions
     "UserSession",
     "UserMFA",
