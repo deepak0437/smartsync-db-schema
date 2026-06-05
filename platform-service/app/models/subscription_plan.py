@@ -181,34 +181,19 @@ class SubscriptionPlan(BaseModel):
     )
 
     # Limits
-    max_students = Column(
-        Integer,
-        nullable=True,
-    )
-
-    max_teachers = Column(
-        Integer,
-        nullable=True,
-    )
-
     max_total_users = Column(
         Integer,
         nullable=True,
-    )
-
-    max_roles = Column(
-        Integer,
-        nullable=True,
+        comment=(
+            "Maximum total users allowed across ALL roles (students, teachers, parents, staff, etc.). "
+            "Null = unlimited."
+        ),
     )
 
     max_storage_gb = Column(
         Integer,
         nullable=True,
-    )
-
-    max_schools = Column(
-        Integer,
-        nullable=True,
+        comment="Maximum storage in GB. Null = unlimited.",
     )
 
     # Modules

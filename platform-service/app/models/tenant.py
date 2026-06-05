@@ -25,20 +25,18 @@ from .base import BaseModel
 
 class TenantStatus(str, enum.Enum):
     """
-    Tenant lifecycle status.
+    Tenant organizational lifecycle status.
 
     States:
-        TRIAL: Evaluation period, limited features
-        ACTIVE: Paid subscription, full features
-        SUSPENDED: Temporary block (payment issue)
-        CANCELLED: Subscription ended voluntarily
-        ARCHIVED: Historical record, no access
+        ACTIVE: Organization is operational
+        INACTIVE: Organization temporarily paused
+        ARCHIVED: Historical record, no longer in use
+    
+    Note: Billing/subscription status is managed at School level.
     """
 
-    TRIAL = "TRIAL"
     ACTIVE = "ACTIVE"
-    SUSPENDED = "SUSPENDED"
-    CANCELLED = "CANCELLED"
+    INACTIVE = "INACTIVE"
     ARCHIVED = "ARCHIVED"
 
 
@@ -104,7 +102,7 @@ class Tenant(BaseModel):
     status = Column(
         Enum(TenantStatus, name="tenant_status_enum"),
         nullable=False,
-        default=TenantStatus.TRIAL,
+        default=TenantStatus.ACTIVE,
         index=True,
     )
 

@@ -34,16 +34,24 @@ from .base import BaseModel
 
 class SchoolStatus(str, enum.Enum):
     """
-    School operational status.
+    School operational and subscription status.
 
     States:
-        ACTIVE: Currently operational
-        INACTIVE: Temporarily closed/paused
+        TRIAL: Evaluation period, limited features
+        ACTIVE: Active subscription, fully operational
+        INACTIVE: Temporarily paused (payment issue or seasonal closure)
+        SUSPENDED: Blocked due to payment failure
+        CANCELLED: Subscription ended voluntarily
         ARCHIVED: Historical record, no access
+    
+    Note: Since billing is at school level, subscription status is tracked here.
     """
 
+    TRIAL = "TRIAL"
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
+    SUSPENDED = "SUSPENDED"
+    CANCELLED = "CANCELLED"
     ARCHIVED = "ARCHIVED"
 
 
@@ -155,7 +163,7 @@ class School(BaseModel):
     status = Column(
         Enum(SchoolStatus, name="school_status_enum"),
         nullable=False,
-        default=SchoolStatus.ACTIVE,
+        default=SchoolStatus.TRIAL,
         index=True,
     )
 
