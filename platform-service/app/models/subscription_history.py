@@ -1,204 +1,342 @@
 """
-Subscription History Model - Audit Trail for Subscription Changes.
+School Subscription History — Platform Service.
 
-Module Purpose:
-  Tracks every change to school subscriptions for audit and analytics.
-  Maintains complete history of upgrades, downgrades, renewals, and cancellations.
-  Enables billing reconciliation and usage trend analysis.
+Immutable audit log. One row per change event.
+Never updated or deleted after insert.
 
-Architecture:
-  - SubscriptionHistory (child) -> SchoolSubscription (parent, many-to-one)
-  - Immutable audit trail (insert-only, no updates)
-  - Links to old and new SubscriptionPlans
-  - Financial snapshot at time of change
+Every time a school's subscription status or plan changes,
+one row is written here. This table answers every historical question:
 
-Key Features:
-  - Action tracking (CREATE, UPGRADE, DOWNGRADE, RENEWAL, CANCEL, PRICE_CHANGE)
-  - Plan version tracking (old plan vs new plan)
-  - Financial impact recording (price before/after)
-  - Timestamp with timezone
-  - Admin/system tracking for accountability
-  - Reason for change (user request, auto-renewal, system action)
+  "What plan was this school on in August 2024?"
+  "When exactly did they upgrade from A1 to A2?"
+  "How many times have they renewed?"
+  "What was the price at each renewal?"
+  "Who made the change and why?"
+  "Did they ever get suspended? When was it lifted?"
 
-Usage:
-  Every subscription change creates a new history record.
-  Query to get subscription timeline or billing audit trail.
-  Analyze upgrade patterns and customer churn reasons.
+Design:
+  - Append-only (no UPDATE, no DELETE ever)
+  - Each row is self-contained: stores both old and new values
+    so you can reconstruct any point-in-time state without
+    joining to other tables
+  - Links back to the subscription row via subscription_id
+  - Also links the previous subscription via previous_subscription_id
+    for multi-hop chain traversal
 
-Examples:
-  School upgrades from PROFESSIONAL to ENTERPRISE
-  Annual renewal of current plan
-  System downgrade due to failed payment
-  Price increase on plan renewal
+Query patterns:
+
+  Full history for a school:
+    SELECT * FROM school_subscription_history
+    WHERE school_id = X
+    ORDER BY changed_at ASC
+
+  State at a specific date:
+    SELECT * FROM school_subscription_history
+    WHERE school_id = X AND changed_at <= '2024-08-01'
+    ORDER BY changed_at DESC LIMIT 1
+
+  All upgrades across platform:
+    SELECT * FROM school_subscription_history
+    WHERE change_type = 'UPGRADED'
+    AND changed_at BETWEEN '2024-01-01' AND '2024-12-31'
+
+  Monthly MRR from history:
+    GROUP BY date_trunc('month', changed_at), new_final_amount_paise
 """
-
-import enum
-from datetime import datetime
 
 from sqlalchemy import (
     Column,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
+    Integer,
     Numeric,
     String,
+    Text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from .base import BaseModel
+from .school_subscription import SubscriptionChangeType
 
 
-class SubscriptionAction(str, enum.Enum):
+class SchoolSubscriptionHistory(BaseModel):
     """
-    Type of subscription change event.
+    Immutable event log of every subscription change.
 
-    Actions:
-        CREATE: New subscription purchased
-        UPGRADE: Moved to higher-tier plan
-        DOWNGRADE: Moved to lower-tier plan
-        RENEWAL: Subscription renewed for next period
-        CANCEL: Subscription cancelled
-        PRICE_CHANGE: Plan price changed on renewal
-        REACTIVATE: Reactivated after cancellation
-        SUSPEND: Temporarily suspended (payment issue)
-        RESUME: Resumed after suspension
-    """
+    One row is inserted for EVERY state transition:
+      - Trial starts
+      - School activates (pays)
+      - Plan is upgraded or downgraded
+      - Subscription is suspended or reactivated
+      - Subscription is cancelled or expires
+      - End date is extended
 
-    CREATE = "CREATE"
-    UPGRADE = "UPGRADE"
-    DOWNGRADE = "DOWNGRADE"
-    RENEWAL = "RENEWAL"
-    CANCEL = "CANCEL"
-    PRICE_CHANGE = "PRICE_CHANGE"
-    REACTIVATE = "REACTIVATE"
-    SUSPEND = "SUSPEND"
-    RESUME = "RESUME"
-
-
-class SubscriptionHistory(BaseModel):
-    """
-    Audit record for every subscription change.
-
-    Immutable historical record of subscription lifecycle events.
+    Rows are NEVER modified after insert.
+    The is_deleted, deleted_by fields from BaseModel are inherited
+    but should never be used on this table.
     """
 
-    __tablename__ = "subscription_history"
-
-    # Link to current subscription
-    school_subscription_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("school_subscriptions.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-        comment="Reference to SchoolSubscription this history belongs to",
+    __tablename__ = "school_subscription_history"
+    __table_args__ = (
+        {
+            "schema": "platform",
+            "comment": (
+                "Immutable event log of every subscription change per school. "
+                "Append-only. Never update or delete rows."
+            ),
+        },
     )
 
-    # Action
-    action = Column(
-        Enum(SubscriptionAction, name="subscription_action_enum"),
+    # ── Core References ───────────────────────────────────────────────────────
+
+    school_id = Column(
+        UUID(as_uuid=True),
         nullable=False,
         index=True,
-        comment="Type of subscription change",
+        comment="Soft FK → platform.schools.id. Indexed for per-school history queries.",
     )
 
-    # Plan versions
-    old_plan_id = Column(
+    tenant_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("subscription_plans.id"),
+        nullable=False,
+        index=True,
+        comment="Soft FK → platform.tenants.id. Denormalized for tenant-level reporting.",
+    )
+
+    subscription_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("platform.school_subscriptions.id", ondelete="SET NULL"),
         nullable=True,
-        comment="Previous plan (NULL for CREATE action)",
+        index=True,
+        comment=(
+            "FK → the NEW school_subscriptions row resulting from this change. "
+            "NULL if the change was a suspension/cancellation that didn't create a new row."
+        ),
     )
 
-    new_plan_id = Column(
+    previous_subscription_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("subscription_plans.id"),
-        nullable=False,
-        comment="Plan after change",
+        nullable=True,
+        index=True,
+        comment=(
+            "FK → the OLD school_subscriptions row before this change. "
+            "NULL for the very first event (TRIAL_STARTED)."
+        ),
     )
 
-    # Timestamps
+    # ── Change Classification ─────────────────────────────────────────────────
+
+    change_type = Column(
+        Enum(SubscriptionChangeType, name="subscription_change_type_enum", schema="platform"),
+        nullable=False,
+        index=True,
+        comment="Type of change. See SubscriptionChangeType enum for all values.",
+    )
+
+    # ── Before State Snapshot ─────────────────────────────────────────────────
+    # Store old values explicitly so this row is self-contained.
+
+    previous_plan_code = Column(
+        String(20),
+        nullable=True,
+        comment=(
+            "Plan code BEFORE this change. "
+            "NULL for TRIAL_STARTED (no previous plan). "
+            "E.g. 'A1' before an upgrade to 'A2'."
+        ),
+    )
+
+    previous_plan_name = Column(
+        String(100),
+        nullable=True,
+        comment="Plan name BEFORE this change. Stored for readability without joins.",
+    )
+
+    previous_status = Column(
+        String(30),
+        nullable=True,
+        comment="Subscription status BEFORE this change. E.g. 'ACTIVE' before 'SUSPENDED'.",
+    )
+
+    previous_max_users = Column(
+        Integer,
+        nullable=True,
+        comment="Effective user count BEFORE this change.",
+    )
+
+    previous_tenure_months = Column(
+        Integer,
+        nullable=True,
+        comment="Tenure in months BEFORE this change.",
+    )
+
+    previous_end_date = Column(
+        Date,
+        nullable=True,
+        comment="Subscription end date BEFORE this change.",
+    )
+
+    previous_final_amount_paise = Column(
+        Numeric(14, 0),
+        nullable=True,
+        comment="Final invoice amount BEFORE this change, in paise.",
+    )
+
+    # ── After State Snapshot ──────────────────────────────────────────────────
+
+    new_plan_code = Column(
+        String(20),
+        nullable=True,
+        comment="Plan code AFTER this change.",
+    )
+
+    new_plan_name = Column(
+        String(100),
+        nullable=True,
+        comment="Plan name AFTER this change.",
+    )
+
+    new_status = Column(
+        String(30),
+        nullable=False,
+        comment="Subscription status AFTER this change.",
+    )
+
+    new_max_users = Column(
+        Integer,
+        nullable=True,
+        comment="Effective user count AFTER this change.",
+    )
+
+    new_tenure_months = Column(
+        Integer,
+        nullable=True,
+        comment="Tenure in months AFTER this change.",
+    )
+
+    new_start_date = Column(
+        Date,
+        nullable=True,
+        comment="New subscription start date AFTER this change.",
+    )
+
+    new_end_date = Column(
+        Date,
+        nullable=True,
+        comment="New subscription end date AFTER this change.",
+    )
+
+    new_final_amount_paise = Column(
+        Numeric(14, 0),
+        nullable=True,
+        comment="Final invoice amount AFTER this change, in paise. NULL for suspensions.",
+    )
+
+    # ── Who and Why ───────────────────────────────────────────────────────────
+
+    changed_by_user_id = Column(
+        UUID(as_uuid=True),
+        nullable=True,
+        comment=(
+            "Internal SmartSync user_id who performed this change. "
+            "NULL for system-automated changes (auto-expiry, auto-suspension)."
+        ),
+    )
+
+    changed_by_type = Column(
+        String(30),
+        nullable=False,
+        default="PLATFORM_ADMIN",
+        comment=(
+            "Who initiated this change. "
+            "PLATFORM_ADMIN = SmartSync ops team manually. "
+            "SYSTEM = Automated job (expiry cron, payment webhook). "
+            "SCHOOL_ADMIN = School requested cancellation."
+        ),
+    )
+
+    change_reason = Column(
+        String(500),
+        nullable=True,
+        comment=(
+            "Human-readable reason for this change. "
+            "Examples: "
+            "'School requested upgrade to accommodate 2500 students', "
+            "'Payment failed after 3 retries — auto-suspended', "
+            "'NGO verification approved — 10% additional discount applied', "
+            "'Contract renewed for 24 months at negotiated rate'."
+        ),
+    )
+
+    # ── Precise Change Timestamp ──────────────────────────────────────────────
+
     changed_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        comment="When change was recorded in system",
+        server_default=func.now(),
+        index=True,
+        comment=(
+            "Exact UTC timestamp when this change occurred. "
+            "Not the same as created_at (BaseModel) — kept separate for clarity. "
+            "Indexed for time-range queries and MRR calculations."
+        ),
     )
 
-    effective_date = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        comment="When change becomes effective (may differ from changed_at)",
-    )
+    # ── Financial Snapshot at Change Time ─────────────────────────────────────
+    # Separate from new_final_amount for clarity on pricing components.
 
-    # Financial snapshot
-    old_price = Column(
-        Numeric(14, 2),
+    base_price_at_change_paise = Column(
+        Numeric(14, 0),
         nullable=True,
-        comment="Price before change (NULL for CREATE)",
+        comment="Base price (before discounts) at the time of this change.",
     )
 
-    new_price = Column(
-        Numeric(14, 2),
-        nullable=False,
-        comment="Price after change",
-    )
-
-    old_billing_cycle = Column(
-        String(20),
+    discount_percent_at_change = Column(
+        Numeric(5, 2),
         nullable=True,
-        comment="Previous billing cycle (MONTHLY, QUARTERLY, ANNUAL)",
+        comment="Total discount percent applied at the time of this change.",
     )
 
-    new_billing_cycle = Column(
-        String(20),
-        nullable=False,
-        comment="New billing cycle",
-    )
-
-    # Reason tracking
-    reason = Column(
-        String(500),
+    tax_percent_at_change = Column(
+        Numeric(5, 2),
         nullable=True,
-        comment="Why change occurred (user request, auto renewal, system action, etc)",
+        comment="Tax percent applied at the time of this change.",
     )
 
-    changed_by = Column(
+    # ── Payment Reference ─────────────────────────────────────────────────────
+
+    payment_reference = Column(
         String(255),
-        nullable=False,
-        comment="Who initiated change (admin username or 'system' for automated)",
-    )
-
-    notes = Column(
-        String(500),
         nullable=True,
-        comment="Additional notes about the change",
+        comment="Payment gateway reference associated with this change (if applicable).",
     )
 
-    # Relationships
+    # ── Internal Notes ────────────────────────────────────────────────────────
+
+    internal_notes = Column(
+        Text,
+        nullable=True,
+        comment="Additional internal notes from ops team. Not visible to school.",
+    )
+
+    # ── Relationship ──────────────────────────────────────────────────────────
+
     subscription = relationship(
         "SchoolSubscription",
-        back_populates="history",
-    )
-
-    old_plan = relationship(
-        "SubscriptionPlan",
-        foreign_keys=[old_plan_id],
-    )
-
-    new_plan = relationship(
-        "SubscriptionPlan",
-        foreign_keys=[new_plan_id],
+        back_populates="history_events",
+        foreign_keys=[subscription_id],
     )
 
     def __repr__(self) -> str:
-        """
-        String representation of SubscriptionHistory.
-
-        Returns:
-            String in format: <SubscriptionHistory action=UPGRADE school_id=uuid>
-        """
         return (
-            f"<SubscriptionHistory "
-            f"action={self.action} "
-            f"changed_at={self.changed_at}>"
+            f"<SchoolSubscriptionHistory "
+            f"school_id={self.school_id} "
+            f"type={self.change_type} "
+            f"{self.previous_plan_code}→{self.new_plan_code} "
+            f"at={self.changed_at}>"
         )
+        
