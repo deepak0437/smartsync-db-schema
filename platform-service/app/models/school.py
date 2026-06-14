@@ -15,7 +15,6 @@ Key Features:
   - Subdomain-based isolation
   - Board type support (CBSE, ICSE, STATE, IB, IGCSE)
   - Address and contact information
-  - Timezone and academic year configuration
   - Status tracking (ACTIVE, INACTIVE, ARCHIVED)
 
 Usage:
@@ -43,6 +42,7 @@ class SchoolStatus(str, enum.Enum):
         SUSPENDED: Blocked due to payment failure
         CANCELLED: Subscription ended voluntarily
         ARCHIVED: Historical record, no access
+        PENDING: By default status will be pending
     
     Note: Since billing is at school level, subscription status is tracked here.
     """
@@ -53,6 +53,7 @@ class SchoolStatus(str, enum.Enum):
     SUSPENDED = "SUSPENDED"
     CANCELLED = "CANCELLED"
     ARCHIVED = "ARCHIVED"
+    PENDING  = "PENDING"
 
 
 class BoardType(str, enum.Enum):
@@ -154,23 +155,11 @@ class School(BaseModel):
         nullable=True,
     )
 
-    timezone = Column(
-        String(100),
-        nullable=False,
-        default="Asia/Kolkata",
-    )
-
     status = Column(
         Enum(SchoolStatus, name="school_status_enum"),
         nullable=False,
         default=SchoolStatus.TRIAL,
         index=True,
-    )
-
-    academic_year_start_month = Column(
-        Integer,
-        nullable=True,
-        comment="Month (1-12) when academic year starts. Example: 4 for April (India), 1 for January (US/UK)",
     )
 
     tenant = relationship(

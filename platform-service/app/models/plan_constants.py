@@ -25,7 +25,10 @@ Why this design?
     Platform team just picks A1 or B1. User limit is baked in.
   - A2 and B2 are "scalable" tiers — platform team picks the variant
     AND chooses a user count from the predefined list.
-  - No arbitrary numbers. Controlled vocabulary prevents pricing mistakes.
+  - No arbitrary numbers at PURCHASE time. Controlled vocabulary prevents pricing mistakes.
+  - MID-TERM UPGRADES: Schools can increase user count to ANY number (not just tier multiples)
+    via SchoolSubscriptionUpgrade table. Upgrades are prorated for remaining days.
+    Example: Buy 1000 users, upgrade to 1300 users after 1 month (not limited to tiers).
 ───────────────────────────────────────────────────────────────────────
 """
 
@@ -72,6 +75,27 @@ class PlanVariant(str, enum.Enum):
     """
     ENTRY    = "ENTRY"
     SCALABLE = "SCALABLE"
+    
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CAPACITY EXPANSION TYPE 
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ExpansionType(str, enum.Enum):
+    """
+    Identifies the specific classification of an upgrade applied to an active subscription.
+    
+    In a multi-tenant SaaS environment, tracking the *intent* of an upgrade is 
+    critical for analytics, revenue reporting, and webhook event routing. 
+    This enum distinguishes a pure user-seat increase from a fundamental 
+    plan migration (e.g., moving from an Entry plan to a Scalable plan).
+    
+    Usage:
+        - Stored in the database to categorize upgrade history.
+        - Used by the financial reporting service to isolate revenue generated 
+          specifically from capacity boosters versus base plan sales.
+    """
+    USER_CAPACITY_EXPANSION = "EXPANSION"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -121,6 +145,33 @@ class GrowthScalableUserCount(int, enum.Enum):
 # Fixed user counts for entry plans (not selectable — hardcoded)
 CORE_ENTRY_USER_COUNT   = 500   # A1 — always 500, no choice
 GROWTH_ENTRY_USER_COUNT = 1000  # B1 — always 1000, no choice
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EXPANSION COUNT (The selectable dropdown values)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class CapacityExpansionPack(int, enum.Enum):
+    """
+    Standardized mid-term capacity expansion values.
+    
+    These are the exact, strictly enforced values that populate the "Add Users" 
+    dropdown in the platform administration UI. 
+    
+    Business Logic:
+        - Any school on an active CORE or GROWTH base plan can purchase these fixed blocks.
+        - By enforcing strict +500 or +1000 increments, the platform prevents 
+          fragmented, arbitrary user count requests (e.g., +312 users). 
+        - This standardizes prorated billing calculations, ensures clean 
+          financial forecasting, and prevents the need to manage complex, 
+          custom pricing edge cases for individual tenants.
+          
+    Options:
+        PLUS_500  → Adds exactly 500 users to the current subscription limit.
+        PLUS_1000 → Adds exactly 1000 users to the current subscription limit.
+    """
+    PLUS_500 = 500
+    PLUS_1000 = 1000
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

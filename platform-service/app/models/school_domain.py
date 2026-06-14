@@ -102,6 +102,11 @@ class SchoolDomain(BaseModel):
         DateTime(timezone=True),
         nullable=True,
     )
+    
+    verified_by = Column(
+        String(255),
+        nullable=False,
+    )
 
     school = relationship(
         "School",

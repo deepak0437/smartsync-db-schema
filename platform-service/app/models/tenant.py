@@ -31,6 +31,7 @@ class TenantStatus(str, enum.Enum):
         ACTIVE: Organization is operational
         INACTIVE: Organization temporarily paused
         ARCHIVED: Historical record, no longer in use
+        PENDING: By default status will be pending
     
     Note: Billing/subscription status is managed at School level.
     """
@@ -38,6 +39,7 @@ class TenantStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
     ARCHIVED = "ARCHIVED"
+    PENDING  = "PENDING"
 
 
 class TenantType(str, enum.Enum):
@@ -102,7 +104,7 @@ class Tenant(BaseModel):
     status = Column(
         Enum(TenantStatus, name="tenant_status_enum"),
         nullable=False,
-        default=TenantStatus.ACTIVE,
+        default=TenantStatus.PENDING,
         index=True,
     )
 
