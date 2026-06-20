@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smartsync-db-schema-config
+  namespace: smartsync-db-schema-dev
+  labels:
+    app: db-schema
+    environment: dev
+data:
+  app-config.yaml: |
+    # ═══════════════════════════════════════════════════════════════════════════
+    # APPLICATION
+    # ═══════════════════════════════════════════════════════════════════════════
+    APP_ENV: development
+    SERVICE_NAME: smartsync-db-schema
+    SERVICE_PORT: 8000
+    DEBUG: True
+    WORKERS: 1
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # DATABASE (PostgreSQL via Supabase)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # DATABASE_URL is automatically assembled in config.py from these parts.
+    # Port 6543 = Supabase PgBouncer (transaction mode) — no need for large pools.
+    DB_HOST: DB_HOST
+    DB_PORT: DB_PORT
+    DB_NAME: DB_NAME
+    DB_USER: DB_USER
+    DB_PASSWORD: DB_PASSWORD

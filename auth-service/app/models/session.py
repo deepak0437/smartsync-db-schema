@@ -40,12 +40,16 @@ that a database breach does not yield usable bearer tokens.
 
 from __future__ import annotations
 
+import enum
+
 from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Enum,
     ForeignKey,
     Index,
+    Integer,
     String,
     UniqueConstraint,
 )
@@ -53,6 +57,34 @@ from sqlalchemy.dialects.postgresql import INET, UUID
 from sqlalchemy.orm import relationship
 
 from .base import BaseModel
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENUMS FOR OTP SYSTEM
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class OTPType(str, enum.Enum):
+    """
+    Purpose of the OTP.
+    
+    EMAIL_VERIFY    → Email address verification during signup or email change
+    MOBILE_VERIFY   → Mobile number verification during signup or phone change
+    PASSWORD_RESET  → Password reset flow (forgot password)
+    """
+    EMAIL_VERIFY = "EMAIL_VERIFY"
+    MOBILE_VERIFY = "MOBILE_VERIFY"
+    PASSWORD_RESET = "PASSWORD_RESET"
+
+
+class OTPChannel(str, enum.Enum):
+    """
+    Delivery channel for the OTP.
+    
+    EMAIL → Sent via email service
+    SMS   → Sent via SMS gateway (Twilio, AWS SNS, etc.)
+    """
+    EMAIL = "EMAIL"
+    SMS = "SMS"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -98,16 +130,21 @@ class UserSession(BaseModel):
         nullable=False,
         index=True,
         comment=(
-            "Owning tenant. Duplicated here (not joined through users) so that "
-            "admin dashboards can list all active sessions in a school without "
-            "a cross-table join."
+            "Owning tenant. Soft FK → platform.tenants.id. "
+            "Denormalized here (not joined through users) so that "
+            "admin dashboards can list all active sessions in a tenant without "
+            "a cross-table join. Required for efficient data isolation queries."
         ),
     )
     school_id = Column(
         UUID(as_uuid=True),
         nullable=False,
         index=True,
-        comment="Owning school. Soft FK → platform.schools.id.",
+        comment=(
+            "Owning school. Soft FK → platform.schools.id. "
+            "Denormalized for school-level session analytics and admin dashboards "
+            "(e.g., 'active sessions in this school' without joining to users table)."
+        ),
     )
     user_id = Column(
         UUID(as_uuid=True),
@@ -212,6 +249,7 @@ class UserOTP(BaseModel):
         Index("ix_auth_otp_user_type", "user_id", "otp_type", "is_used"),
         Index("ix_auth_otp_expires", "expires_at"),
         Index("ix_auth_otp_target", "target_address", "created_at"),
+        Index("ix_auth_otp_tenant_school", "tenant_id", "school_id", "created_at"),
         {
             "schema": "auth",
             "comment": (
@@ -219,6 +257,26 @@ class UserOTP(BaseModel):
                 "and attempt-tracking source of truth."
             ),
         },
+    )
+
+    # ── Tenant & School Scoping ────────────────────────────────────────────────
+    tenant_id = Column(
+        UUID(as_uuid=True),
+        nullable=False,
+        index=True,
+        comment=(
+            "Owning tenant. Soft FK → platform.tenants.id. "
+            "Denormalized here for efficient multi-tenant queries and data isolation."
+        ),
+    )
+    school_id = Column(
+        UUID(as_uuid=True),
+        nullable=False,
+        index=True,
+        comment=(
+            "Owning school. Soft FK → platform.schools.id. "
+            "Denormalized for admin dashboards and school-level OTP analytics."
+        ),
     )
 
     # ── Link ───────────────────────────────────────────────────────────────────
@@ -232,19 +290,32 @@ class UserOTP(BaseModel):
 
     # ── OTP Type & Target ──────────────────────────────────────────────────────
     otp_type = Column(
-        String(20),
+        Enum(OTPType, name="otp_type_enum", schema="auth"),
         nullable=False,
-        comment="What this OTP is for: EMAIL_VERIFY | MOBILE_VERIFY | PASSWORD_RESET.",
+        comment=(
+            "Purpose of this OTP. "
+            "EMAIL_VERIFY    → Email verification during signup or email change. "
+            "MOBILE_VERIFY   → Mobile number verification during signup or phone change. "
+            "PASSWORD_RESET  → Password reset flow (forgot password)."
+        ),
     )
     target_channel = Column(
-        String(10),
+        Enum(OTPChannel, name="otp_channel_enum", schema="auth"),
         nullable=False,
-        comment="How the OTP was delivered: EMAIL | SMS.",
+        comment=(
+            "Delivery channel for this OTP. "
+            "EMAIL → Sent via email service. "
+            "SMS   → Sent via SMS gateway (Twilio, AWS SNS, etc.)."
+        ),
     )
     target_address = Column(
         String(255),
         nullable=False,
-        comment="The email address or mobile number the OTP was sent to. Kept for audit even if the user later changes their email.",
+        comment=(
+            "The email address or mobile number the OTP was sent to. "
+            "Kept for audit even if the user later changes their email/mobile. "
+            "Format: email@example.com for EMAIL, +919876543210 for SMS."
+        ),
     )
 
     # ── Code Security ──────────────────────────────────────────────────────────
