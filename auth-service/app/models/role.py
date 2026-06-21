@@ -1,21 +1,47 @@
 """
 RBAC Models — Auth Service
 
-Architecture: Platform-Controlled RBAC with School-Level Customization
+Architecture: Platform-Controlled RBAC with School-Level Permission Import
 
-Three-layer design:
-  Layer 1 → roles                    Platform-defined. Read-only for schools.
-  Layer 2 → permissions              Platform-defined. Read-only for schools.
-  Layer 3 → role_permission_templates  Platform defaults. Schools customize via school_role_permissions.
+Five-layer design (school-level role enable/disable layer removed — see
+note below):
+  Layer 1 → roles                     Platform-defined. Top-level role label only.
+                                       No business/org hierarchy data — e.g. which
+                                       class a TEACHER teaches lives in Academic
+                                       Service, never here.
+  Layer 2 → permissions               Platform-defined. All permissions for all
+                                       roles, across all modules and actions.
+  Layer 3 → role_permission_templates  Platform's default Role <-> Permission map.
+                                       Many-to-many: one role has many permissions,
+                                       one permission belongs to many roles.
 
 School Customization Layer:
-  Layer 4 → school_roles             School can enable/disable roles for their school.
-  Layer 5 → school_role_permissions  School's override of which permissions a role has.
+  Layer 4 → school_role_permissions   School-level permission IMPORT mechanism.
+                                       Lets a school copy another role's granted
+                                       permissions into a different role (e.g. give
+                                       PRINCIPAL everything TEACHER has, on top of
+                                       PRINCIPAL's own permissions) without
+                                       duplicating rows in role_permission_templates.
 
 User Assignment:
-  Layer 6 → user_roles               Assigns one or more roles to a user, scoped to school.
+  Layer 5 → user_roles                Assigns exactly ONE role to a user, scoped
+                                       to a school. A user cannot hold multiple
+                                       roles — this is now a fixed 1:1 relationship.
 
-JWT Effective Permissions are resolved from school_role_permissions, NOT role_permission_templates.
+Layer 6 → school_role_stats          Real-time per-role user count per school.
+
+REMOVED: school_roles (Layer 4 in the previous version)
+---------------------------------------------------------
+Every subscribed school is given ALL platform roles by default — there is no
+school-level enable/disable decision to make, so a table that only existed to
+toggle role availability per school adds no value and is dropped. Permission
+customization per school still exists, but it now points directly at `roles`
+instead of going through a `school_roles` indirection table.
+
+JWT Effective Permissions are resolved as:
+  Permissions a role owns directly (role_permission_templates)
+  UNION
+  Permissions imported from another role (school_role_permissions, this school only)
 """
 
 from sqlalchemy import (
@@ -24,15 +50,14 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
-    Integer,
     String,
     Text,
     UniqueConstraint,
+    SmallInteger,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from uuid import uuid4
 
 from .base import Base, BaseModel
 
@@ -41,13 +66,19 @@ from .base import Base, BaseModel
 # LAYER 1 — ROLES (Platform-Controlled Master Table)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class Role(Base):
+class Role(BaseModel):
     """
-    Platform-defined role catalog.
+    Platform-defined role catalog — the top-level role label only.
 
-    Created and maintained ONLY by the SmartSync platform team.
-    Schools cannot create or delete roles — they can only enable/disable
-    and customize permissions for their school via SchoolRole.
+    Created and maintained ONLY by the SmartSync platform team. Schools
+    cannot create, rename, or delete roles.
+
+    Deliberately thin: this table stores ONLY what Auth Service needs to
+    know a role exists and group it for UI display. It does NOT store any
+    business/organizational detail — e.g. "which class does this TEACHER
+    teach" or "which department does this HOD head" are Academic/HR Service
+    concerns, not Auth Service concerns. Auth Service only needs to know
+    that "TEACHER" is a valid role and what permissions attach to it.
 
     Examples:
         STUDENT, PARENT, TEACHER, CLASS_TEACHER, SUBJECT_TEACHER,
@@ -55,7 +86,9 @@ class Role(Base):
         WARDEN, DRIVER, RECEPTIONIST, HR, SECURITY_GUARD,
         LAB_ASSISTANT, SPORTS_COACH, COUNSELOR, ...
 
-    Expected: 40–50 roles total.
+    Expected: 40–50 roles total. All roles are available to every
+    subscribed school by default — there is no per-school enable/disable
+    step (see module docstring for why school_roles was removed).
     """
 
     __tablename__ = "roles"
@@ -64,11 +97,9 @@ class Role(Base):
         Index("ix_auth_role_category", "category"),
         {
             "schema": "auth",
-            "comment": "Platform-defined role catalog. Schools cannot create roles.",
+            "comment": "Platform-defined top-level role catalog. Schools cannot create roles.",
         },
     )
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4, index=True)
 
     # ── Identity ───────────────────────────────────────────────────────────────
     code = Column(
@@ -78,7 +109,7 @@ class Role(Base):
         index=True,
         comment=(
             "Machine-readable role code. UPPER_SNAKE_CASE. "
-            "Used in JWT 'roles' claim and permission checks. "
+            "Used in JWT 'role' claim and permission checks. "
             "E.g. 'CLASS_TEACHER', 'HOD', 'PRINCIPAL'"
         ),
     )
@@ -90,7 +121,7 @@ class Role(Base):
     description = Column(
         Text,
         nullable=True,
-        comment="Description of what this role does in the school context",
+        comment="Description of what this role represents. No business-domain detail.",
     )
 
     # ── Classification ─────────────────────────────────────────────────────────
@@ -103,52 +134,14 @@ class Role(Base):
             "ACADEMIC | ADMINISTRATIVE | OPERATIONAL | SUPPORT | SYSTEM"
         ),
     )
-    hierarchy_level = Column(
-        Integer,
-        nullable=False,
-        default=1,
-        comment=(
-            "Authority level for conflict resolution. "
-            "Higher = more authority. "
-            "STUDENT=1, TEACHER=10, CLASS_TEACHER=15, HOD=20, "
-            "PRINCIPAL=50, SUPER_ADMIN=100"
-        ),
-    )
-    is_multi_assignable = Column(
-        Boolean,
-        nullable=False,
-        default=True,
-        comment=(
-            "Whether a user can hold this role alongside other roles. "
-            "False for mutually exclusive roles (e.g. STUDENT cannot also be TEACHER)."
-        ),
-    )
-
-    # ── Defaults ───────────────────────────────────────────────────────────────
-    is_enabled_by_default = Column(
-        Boolean,
-        nullable=False,
-        default=True,
-        comment=(
-            "Whether this role is automatically available to all schools. "
-            "False = school must explicitly enable it via SchoolRole."
-        ),
-    )
 
     # ── Status ─────────────────────────────────────────────────────────────────
-    is_active = Column(Boolean, nullable=False, default=True, index=True)
-
-    # ── Timestamps (platform-managed, not using BaseModel) ────────────────────
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
+    is_active = Column(
+        Boolean,
         nullable=False,
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
+        default=True,
+        index=True,
+        comment="False = retired/deprecated role. Existing assignments are unaffected.",
     )
 
     # ── Relationships ──────────────────────────────────────────────────────────
@@ -156,10 +149,6 @@ class Role(Base):
         "RolePermissionTemplate",
         back_populates="role",
         cascade="all, delete-orphan",
-    )
-    school_roles = relationship(
-        "SchoolRole",
-        back_populates="role",
     )
     user_roles = relationship(
         "UserRole",
@@ -174,12 +163,16 @@ class Role(Base):
 # LAYER 2 — PERMISSIONS (Platform-Controlled Master Table)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class Permission(Base):
+class Permission(BaseModel):
     """
     Platform-defined permission catalog.
 
-    Created and maintained ONLY by the SmartSync platform team.
-    Schools cannot create permissions.
+    Created and maintained ONLY by the SmartSync platform team. Schools
+    cannot create permissions.
+
+    This is the single, complete catalog of every permission across every
+    role and every module — every action any role could ever need, in one
+    place.
 
     Naming convention: MODULE.SUBMODULE.ACTION
     Examples:
@@ -187,7 +180,10 @@ class Permission(Base):
         ACADEMICS.HOMEWORK.READ
         ACADEMICS.ATTENDANCE.MARK
         ACADEMICS.ATTENDANCE.READ
-        ACADEMICS.REVIEW.WRITE
+        ACADEMICS.STUDENT_REVIEW.READ      ← shared across TEACHER, STUDENT,
+                                              PRINCIPAL, etc. — see
+                                              RolePermissionTemplate below for
+                                              how one permission maps to many roles
         FINANCE.FEES.READ
         FINANCE.FEES.COLLECT
         HOSTEL.ROOM.ALLOCATE
@@ -212,8 +208,6 @@ class Permission(Base):
             "comment": "Platform-defined permission catalog. Schools cannot create permissions.",
         },
     )
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4, index=True)
 
     # ── Identity ───────────────────────────────────────────────────────────────
     code = Column(
@@ -276,10 +270,6 @@ class Permission(Base):
     # ── Status ─────────────────────────────────────────────────────────────────
     is_active = Column(Boolean, nullable=False, default=True, index=True)
 
-    # ── Timestamps ─────────────────────────────────────────────────────────────
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-
     # ── Relationships ──────────────────────────────────────────────────────────
     role_templates = relationship(
         "RolePermissionTemplate",
@@ -297,26 +287,32 @@ class Permission(Base):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LAYER 3 — ROLE PERMISSION TEMPLATES (Platform Defaults)
+# LAYER 3 — ROLE PERMISSION TEMPLATES (Platform Defaults — Role <-> Permission Map)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class RolePermissionTemplate(Base):
+class RolePermissionTemplate(BaseModel):
     """
-    Platform's default mapping of Role → Permission.
+    Platform's default mapping of Role <-> Permission. Many-to-many.
 
-    This is the baseline that every school starts with when they
-    enable a role. Schools can then customize their mapping via SchoolRolePermission.
+    A single role can have many permissions, and a single permission can
+    belong to many roles. E.g. ACADEMICS.STUDENT_REVIEW.READ is granted to
+    TEACHER, STUDENT, and PRINCIPAL simultaneously — each of those three
+    roles gets its own row here pointing at the same permission.
 
-    Only the SmartSync platform team can modify these templates.
-    Schools never write to this table.
+    This is the platform-wide baseline every school starts with. Only the
+    SmartSync platform team can modify these templates — schools never
+    write to this table directly. Schools customize their effective grants
+    via SchoolRolePermission (Layer 4) instead, which can import permissions
+    from one role into another on top of this baseline.
 
     Example defaults:
         TEACHER      → ACADEMICS.HOMEWORK.CREATE
         TEACHER      → ACADEMICS.HOMEWORK.READ
         TEACHER      → ACADEMICS.ATTENDANCE.MARK
+        TEACHER      → ACADEMICS.STUDENT_REVIEW.READ
         STUDENT      → ACADEMICS.HOMEWORK.READ
-        STUDENT      → ACADEMICS.ATTENDANCE.READ
-        PRINCIPAL    → ACADEMICS.ATTENDANCE.READ
+        STUDENT      → ACADEMICS.STUDENT_REVIEW.READ
+        PRINCIPAL    → ACADEMICS.STUDENT_REVIEW.READ
         PRINCIPAL    → FINANCE.FEES.READ
         ACCOUNTANT   → FINANCE.FEES.COLLECT
         LIBRARIAN    → LIBRARY.BOOK.ISSUE
@@ -333,27 +329,26 @@ class RolePermissionTemplate(Base):
         {
             "schema": "auth",
             "comment": (
-                "Platform's default role-permission mapping. "
-                "Read-only for schools. Schools customize via SchoolRolePermission."
+                "Platform's default many-to-many role-permission map. "
+                "Read-only for schools. Schools layer additional grants via "
+                "SchoolRolePermission (permission import between roles)."
             ),
         },
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     role_id = Column(
-        UUID(as_uuid=True),
+        SmallInteger,
         ForeignKey("auth.roles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     permission_id = Column(
-        UUID(as_uuid=True),
+        SmallInteger,
         ForeignKey("auth.permissions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # ── Relationships ──────────────────────────────────────────────────────────
     role = relationship("Role", back_populates="permission_templates")
@@ -364,131 +359,68 @@ class RolePermissionTemplate(Base):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LAYER 4 — SCHOOL ROLES (School Enables/Disables Platform Roles)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class SchoolRole(BaseModel):
-    """
-    A school's activation of a platform-defined role.
-
-    Represents the school's decision to use a particular role.
-    Automatically seeded from roles.is_enabled_by_default on school creation.
-
-    Schools can:
-        ✅ Enable a role   (is_enabled = True)
-        ✅ Disable a role  (is_enabled = False)
-        ❌ Create new roles
-        ❌ Delete platform roles
-
-    Design note:
-        This table also stores the school's alias for the role.
-        E.g. platform calls it 'CLASS_TEACHER', but school wants to display
-        it as 'Form Teacher' — they set display_name = 'Form Teacher'.
-    """
-
-    __tablename__ = "school_roles"
-    __table_args__ = (
-        UniqueConstraint(
-            "tenant_id", "school_id", "role_id",
-            name="uq_auth_school_role",
-        ),
-        Index("ix_auth_school_role_school", "school_id"),
-        Index("ix_auth_school_role_enabled", "school_id", "is_enabled"),
-        {
-            "schema": "auth",
-            "comment": "Per-school activation of platform roles. Schools can enable/disable roles.",
-        },
-    )
-
-    # ── Scoping ────────────────────────────────────────────────────────────────
-    tenant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    school_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    role_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("auth.roles.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-
-    # ── School Customization ───────────────────────────────────────────────────
-    is_enabled = Column(
-        Boolean,
-        nullable=False,
-        default=True,
-        comment=(
-            "True = role is available in this school. "
-            "False = role disabled — cannot be assigned to users."
-        ),
-    )
-    display_name = Column(
-        String(255),
-        nullable=True,
-        comment=(
-            "School's custom display name for this role. "
-            "Falls back to role.name if null. "
-            "E.g. school calls CLASS_TEACHER as 'Form Teacher'"
-        ),
-    )
-
-    # ── Relationships ──────────────────────────────────────────────────────────
-    role = relationship("Role", back_populates="school_roles")
-    school_role_permissions = relationship(
-        "SchoolRolePermission",
-        back_populates="school_role",
-        cascade="all, delete-orphan",
-    )
-
-    def __repr__(self) -> str:
-        return (
-            f"<SchoolRole school_id={self.school_id} "
-            f"role_id={self.role_id} enabled={self.is_enabled}>"
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# LAYER 5 — SCHOOL ROLE PERMISSIONS (School's Permission Customization)
+# LAYER 4 — SCHOOL ROLE PERMISSIONS (Permission Import Between Roles, Per School)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class SchoolRolePermission(BaseModel):
     """
-    School's customized permission mapping for a role.
+    School-level permission IMPORT mechanism between two roles.
 
-    This is the EFFECTIVE permission table used during login JWT generation.
+    This is NOT a copy of RolePermissionTemplate. It exists for one specific
+    use case: a school wants role A to also have some or all of role B's
+    permissions, without touching the platform-wide template for either role.
 
-    Flow:
-        1. On school activation: seeded from RolePermissionTemplate.
-        2. School admin can add/remove permissions per role.
-        3. At login: fetch rows WHERE school_id = ? AND role_id IN (user's roles)
-           AND is_granted = True → these become the user's effective permissions.
+    Concrete example (the one you described):
+        TEACHER role has 20 platform-default permissions.
+        PRINCIPAL role has its own, smaller, default set.
+        This particular school wants PRINCIPAL to ALSO have everything
+        TEACHER has — so they import TEACHER's permission set into PRINCIPAL.
 
-    Example:
-        School A enables ATTENDANCE.MARK for TEACHER role.
-        School B leaves TEACHER with only ATTENDANCE.READ.
+        Result at this school only:
+            PRINCIPAL effective permissions = PRINCIPAL's own template grants
+                                               + imported TEACHER grants
+            TEACHER effective permissions   = TEACHER's own template grants
+                                               (completely unaffected by the import)
 
-        Both schools use the same platform TEACHER role,
-        but their effective permissions differ.
+    A school can import the FULL permission set of a source role, or a
+    specific subset of it — both are represented by individual rows here
+    (one row per imported permission), so a partial import is just fewer rows.
+
+    Flow at login (effective permission resolution):
+        1. Start with RolePermissionTemplate rows for the user's role_id
+           (the role's own platform-default grants).
+        2. UNION with SchoolRolePermission rows where
+           target_role_id = the user's role_id AND school_id = this school
+           AND is_granted = True (permissions imported from another role).
+        3. The combined, de-duplicated set is the user's effective permissions.
 
     Design:
-        Seeded automatically from RolePermissionTemplate on school onboarding.
-        School can then GRANT additional permissions or REVOKE defaults.
-        is_granted = True  → permission is active
-        is_granted = False → permission explicitly revoked (not just absent)
+        target_role_id   — the role RECEIVING the imported permission
+                            (PRINCIPAL, in the example above)
+        source_role_id   — the role the permission is being copied FROM
+                            (TEACHER, in the example above) — kept so the
+                            import is traceable and revocable as a group
+        permission_id    — the specific permission being imported
+        is_granted        — True = import is active. False = explicitly
+                            revoked without deleting the audit row.
     """
 
     __tablename__ = "school_role_permissions"
     __table_args__ = (
         UniqueConstraint(
-            "tenant_id", "school_id", "school_role_id", "permission_id",
+            "tenant_id", "school_id", "target_role_id", "permission_id",
             name="uq_auth_school_role_permission",
         ),
-        Index("ix_auth_srp_lookup", "school_id", "school_role_id", "is_granted"),
+        Index("ix_auth_srp_lookup", "school_id", "target_role_id", "is_granted"),
         Index("ix_auth_srp_permission", "permission_id"),
+        Index("ix_auth_srp_source_role", "source_role_id"),
         {
             "schema": "auth",
             "comment": (
-                "Effective permission set per role per school. "
-                "Used during JWT generation. "
-                "Seeded from RolePermissionTemplate, customized by school admin."
+                "Per-school permission import: copies a permission grant from "
+                "one role (source_role_id) onto another role (target_role_id) "
+                "for this school only. Layered on top of RolePermissionTemplate "
+                "at JWT generation time, never replaces it."
             ),
         },
     )
@@ -496,17 +428,33 @@ class SchoolRolePermission(BaseModel):
     # ── Scoping ────────────────────────────────────────────────────────────────
     tenant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     school_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    school_role_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("auth.school_roles.id", ondelete="CASCADE"),
+
+    # ── Import Direction ───────────────────────────────────────────────────────
+    target_role_id = Column(
+        SmallInteger,
+        ForeignKey("auth.roles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+        comment="The role RECEIVING this imported permission. E.g. PRINCIPAL.",
+    )
+    source_role_id = Column(
+        SmallInteger,
+        ForeignKey("auth.roles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment=(
+            "The role this permission is being imported FROM. E.g. TEACHER. "
+            "Kept (rather than just storing the permission) so the whole "
+            "import can be queried/revoked as 'everything imported from "
+            "TEACHER into PRINCIPAL', not just permission-by-permission."
+        ),
     )
     permission_id = Column(
-        UUID(as_uuid=True),
+        SmallInteger,
         ForeignKey("auth.permissions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+        comment="The specific permission being imported from source_role_id onto target_role_id.",
     )
 
     # ── Grant State ────────────────────────────────────────────────────────────
@@ -516,89 +464,96 @@ class SchoolRolePermission(BaseModel):
         default=True,
         index=True,
         comment=(
-            "True  = permission is active for this role in this school. "
-            "False = permission explicitly revoked (overrides template default)."
+            "True  = this imported permission is currently active for "
+            "target_role_id at this school. "
+            "False = import revoked without deleting the row (keeps audit trail)."
         ),
     )
 
     # ── Change Tracking ────────────────────────────────────────────────────────
-    source = Column(
-        String(20),
-        nullable=False,
-        default="TEMPLATE",
-        comment=(
-            "How this row was created. "
-            "TEMPLATE = auto-seeded from RolePermissionTemplate. "
-            "SCHOOL_OVERRIDE = manually set by school admin."
-        ),
-    )
     modified_by_user_id = Column(
         UUID(as_uuid=True),
         nullable=True,
-        comment=(
-            "School admin user_id who last modified this grant. "
-            "Null for template-seeded rows."
-        ),
+        comment="School admin user_id who set up or last modified this import.",
     )
 
     # ── Relationships ──────────────────────────────────────────────────────────
-    school_role = relationship("SchoolRole", back_populates="school_role_permissions")
+    target_role = relationship(
+        "Role",
+        foreign_keys=[target_role_id],
+    )
+    source_role = relationship(
+        "Role",
+        foreign_keys=[source_role_id],
+    )
     permission = relationship("Permission", back_populates="school_role_permissions")
 
     def __repr__(self) -> str:
         return (
             f"<SchoolRolePermission school_id={self.school_id} "
-            f"school_role_id={self.school_role_id} "
+            f"{self.source_role_id} -> {self.target_role_id} "
             f"perm_id={self.permission_id} granted={self.is_granted}>"
         )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LAYER 6 — USER ROLES (Assigns Roles to Users)
+# LAYER 5 — USER ROLES (Assigns Exactly One Role to a User)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class UserRole(BaseModel):
     """
-    Assigns one or more roles to a user within a school.
+    Assigns exactly ONE role to a user within a school.
 
-    Multi-role support:
-        A user can hold multiple roles simultaneously.
-        E.g. Rahul is both TEACHER and CLASS_TEACHER.
-        E.g. Suresh is both TEACHER and HOSTEL_WARDEN.
+    Single-role fixed rule:
+        A user has one and only one role at a time, scoped to their school.
+        A person cannot simultaneously be TEACHER and CLASS_TEACHER as two
+        separate role rows — if a school needs a user to act with broader
+        permissions, that is handled by importing permissions into their
+        single role via SchoolRolePermission (Layer 4), not by stacking
+        multiple role assignments on the user.
 
-    Temporal support:
-        Roles can be time-boxed (e.g. acting principal for 2 weeks).
+    Enforced as a hard 1:1 via the unique constraint on
+    (tenant_id, school_id, user_id) — no role_id in that constraint,
+    because there can only ever be one row per user per school, period.
 
     Scope:
-        Role assignments are scoped to (tenant_id, school_id, user_id).
-        A user transferring to another school gets a new UserRole
-        in the new school.
+        Role assignment is scoped to (tenant_id, school_id, user_id).
+        A user transferring to another school gets a new UserRole row in
+        the new school — their old school's row is untouched.
 
     At login, effective permissions are computed as:
-        SELECT p.code
-        FROM school_role_permissions srp
-        JOIN permissions p ON p.id = srp.permission_id
-        WHERE srp.school_id = :school_id
-          AND srp.school_role_id IN (
-              SELECT sr.id FROM school_roles sr
-              JOIN user_roles ur ON ur.role_id = sr.role_id
-              WHERE ur.user_id = :user_id
-                AND ur.school_id = :school_id
-                AND ur.is_active = true
-          )
-          AND srp.is_granted = true
+        WITH user_role AS (
+            SELECT role_id FROM user_roles
+            WHERE user_id = :user_id AND school_id = :school_id AND is_active = true
+        )
+        SELECT DISTINCT p.code
+        FROM permissions p
+        WHERE p.id IN (
+            SELECT permission_id FROM role_permission_templates
+            WHERE role_id = (SELECT role_id FROM user_role) AND is_active = true
+        )
+        OR p.id IN (
+            SELECT permission_id FROM school_role_permissions
+            WHERE target_role_id = (SELECT role_id FROM user_role)
+              AND school_id = :school_id
+              AND is_granted = true
+        )
     """
 
     __tablename__ = "user_roles"
     __table_args__ = (
         UniqueConstraint(
-            "tenant_id", "school_id", "user_id", "role_id",
-            name="uq_auth_user_role",
+            "tenant_id", "school_id", "user_id",
+            name="uq_auth_user_role_single",
         ),
         Index("ix_auth_user_role_user", "user_id", "school_id", "is_active"),
+        Index("ix_auth_user_role_role", "role_id", "school_id"),
         {
             "schema": "auth",
-            "comment": "Role assignments per user per school. Supports multi-role.",
+            "comment": (
+                "Exactly one role per user per school. Unique constraint has "
+                "no role_id — a user cannot hold a second role row."
+            ),
         },
     )
 
@@ -610,25 +565,18 @@ class UserRole(BaseModel):
         ForeignKey("auth.users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+        unique=True,
+        comment="FK -> users.id. Unique: enforces one role row per user, period.",
     )
     role_id = Column(
-        UUID(as_uuid=True),
+        SmallInteger,
         ForeignKey("auth.roles.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
-        comment="Platform role ID. RESTRICT so roles can't be accidentally deleted.",
+        comment="The single platform role this user holds. RESTRICT prevents accidental role deletion.",
     )
 
     # ── Assignment Metadata ────────────────────────────────────────────────────
-    is_primary = Column(
-        Boolean,
-        nullable=False,
-        default=False,
-        comment=(
-            "True = this is the user's primary display role. "
-            "Used in UI headers and reports. Only one per user per school."
-        ),
-    )
     assigned_by_user_id = Column(
         UUID(as_uuid=True),
         nullable=True,
@@ -640,25 +588,10 @@ class UserRole(BaseModel):
         nullable=False,
     )
 
-    # ── Temporal Bounds ────────────────────────────────────────────────────────
-    valid_from = Column(
-        DateTime(timezone=True),
-        nullable=True,
-        comment="Role becomes effective at this time. Null = immediately.",
-    )
-    valid_until = Column(
-        DateTime(timezone=True),
-        nullable=True,
-        comment=(
-            "Role expires at this time. Null = no expiry. "
-            "E.g. acting principal assignment for 2 weeks."
-        ),
-    )
-
     # ── Relationships ──────────────────────────────────────────────────────────
     user = relationship(
         "User",
-        back_populates="user_roles",
+        back_populates="user_role",
         foreign_keys=[user_id],
     )
     role = relationship("Role", back_populates="user_roles")
@@ -672,7 +605,7 @@ class UserRole(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LAYER 7 — SCHOOL ROLE STATISTICS (Real-time User Count per Role)
+# LAYER 6 — SCHOOL ROLE STATISTICS (Real-time User Count per Role)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class SchoolRoleStats(BaseModel):
@@ -689,8 +622,8 @@ class SchoolRoleStats(BaseModel):
         - Support Platform Service subscription limit checks
 
     Updated by triggers when:
-        - New user assigned to role (INSERT on user_roles)
-        - User role removed (DELETE on user_roles)
+        - New user assigned a role (INSERT on user_roles)
+        - User's role removed (DELETE on user_roles)
         - User status changes (UPDATE on users.is_active)
         - User soft deleted (UPDATE on users.is_deleted)
 
@@ -733,25 +666,25 @@ class SchoolRoleStats(BaseModel):
         UUID(as_uuid=True),
         nullable=False,
         index=True,
-        comment="Org boundary. Soft FK → platform.tenants.id",
+        comment="Org boundary. Soft FK -> platform.tenants.id",
     )
     school_id = Column(
         UUID(as_uuid=True),
         nullable=False,
         index=True,
-        comment="School boundary. Soft FK → platform.schools.id",
+        comment="School boundary. Soft FK -> platform.schools.id",
     )
     role_id = Column(
-        UUID(as_uuid=True),
+        SmallInteger,
         ForeignKey("auth.roles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        comment="Platform role ID. FK → auth.roles.id",
+        comment="Platform role ID. FK -> auth.roles.id",
     )
 
     # ── Counters ───────────────────────────────────────────────────────────────
     total_users = Column(
-        Integer,
+        SmallInteger,
         nullable=False,
         default=0,
         comment=(
@@ -760,7 +693,7 @@ class SchoolRoleStats(BaseModel):
         ),
     )
     active_users = Column(
-        Integer,
+        SmallInteger,
         nullable=False,
         default=0,
         comment=(
@@ -769,7 +702,7 @@ class SchoolRoleStats(BaseModel):
         ),
     )
     inactive_users = Column(
-        Integer,
+        SmallInteger,
         nullable=False,
         default=0,
         comment=(
@@ -778,7 +711,7 @@ class SchoolRoleStats(BaseModel):
         ),
     )
     deleted_users = Column(
-        Integer,
+        SmallInteger,
         nullable=False,
         default=0,
         comment=(

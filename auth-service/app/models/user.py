@@ -91,7 +91,6 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
-    Integer,
     SmallInteger,
     String,
     UniqueConstraint,
@@ -270,6 +269,12 @@ class User(BaseModel):
     otps = relationship(
         "UserOTP",
         back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    user_role = relationship(
+        "UserRole",
+        back_populates="user",
+        uselist=False,
         cascade="all, delete-orphan",
     )
 
