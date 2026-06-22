@@ -5,9 +5,11 @@ Supports:
 - Offline mode (generate SQL without DB connection)
 - Online mode (apply migrations to live database)
 - Auto-detect schema changes from SQLAlchemy models
+- Shared database configuration from etc/config/config.yaml
 """
 import os
 import sys
+from pathlib import Path
 from logging.config import fileConfig
 
 from alembic import context
@@ -17,6 +19,10 @@ from sqlalchemy import engine_from_config, pool, text
 # Add project root to sys.path so models can be imported
 # ---------------------------------------------------------------------------
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Add scripts directory to path for shared config loader
+repo_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(repo_root))
 
 # ---------------------------------------------------------------------------
 # Import all models so Alembic can detect schema changes
@@ -28,10 +34,35 @@ from app.db.base import Base, metadata  # noqa: F401 — registers all models
 # ---------------------------------------------------------------------------
 config = context.config
 
-# Override sqlalchemy.url from environment variable if set
-auth_db_url = os.getenv("AUTH_DATABASE_URL", "").replace("+asyncpg", "")
-if auth_db_url:
-    config.set_main_option("sqlalchemy.url", auth_db_url)
+# ---------------------------------------------------------------------------
+# Load database URL from environment or shared config
+# ---------------------------------------------------------------------------
+def get_database_url():
+    """
+    Get database URL with priority:
+    1. Environment variable AUTH_DATABASE_URL
+    2. Shared config from etc/config/config.yaml
+    3. Fallback to localhost
+    """
+    # Priority 1: Service-specific env var
+    db_url = os.getenv("AUTH_DATABASE_URL")
+    if db_url:
+        return db_url.replace("+asyncpg", "")
+    
+    # Priority 2: Load from shared config
+    try:
+        from scripts.lib.config_loader import load_database_url
+        db_url = load_database_url()
+        if db_url:
+            return db_url.replace("+asyncpg", "")
+    except (ImportError, FileNotFoundError):
+        pass
+    
+    # Priority 3: Fallback for local development
+    return "postgresql://smartsync:smartsync@localhost:5432/smartsync_dev"
+
+db_url = get_database_url()
+config.set_main_option("sqlalchemy.url", db_url)
 
 # Setup logging from alembic.ini
 if config.config_file_name is not None:

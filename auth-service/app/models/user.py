@@ -1,473 +1,581 @@
 """
-Auth Service — User Models
+Auth & RBAC Service — User Identity Models
+============================================
+File: app/models/user.py
 
-Three tables. One file. One concern per table.
+WHAT THIS FILE BELONGS TO
+--------------------------
+This file is part of the **Auth & RBAC Service**. It defines the complete
+identity layer for every human who logs into SmartSync — students, parents,
+teachers, HODs, school admins, and platform admins alike. One row in `users`
+exists per login-capable person per school.
 
-┌─────────────────────────────────────────────────────────────────────┐
-│                       auth.users                                    │
-│  Identity anchor — rarely changes after creation                    │
-│  username · email · phone · display_name · is_active · 2FA flags   │
-├─────────────────────────────────────────────────────────────────────┤
-│                   auth.user_credentials                             │
-│  Password state — changes only on reset / expiry                    │
-│  password_hash · password_salt · must_change · expires_at           │
-├─────────────────────────────────────────────────────────────────────┤
-│                    auth.user_security                               │
-│  Live counters — changes on every failed login attempt              │
-│  failed_login_attempts · is_locked · locked_until · last_login_*   │
-└─────────────────────────────────────────────────────────────────────┘
+This file does NOT contain:
+  - Role definitions, permissions, or role assignments (see roles.py — discussed separately)
+  - Business profile data (a student's class/section lives in Academic Service,
+    a teacher's department lives in HR Service — never here)
 
-Why three tables instead of one?
----------------------------------
-Postgres uses MVCC (Multi-Version Concurrency Control).
-Every UPDATE creates a new full row version — the old version stays
-on disk until VACUUM cleans it up.
+SCHEMA SEPARATION RATIONALE
+-----------------------------
+The single flat `users` table you originally listed mixes three workloads with
+very different read/write patterns. Splitting them into four tables is not
+over-engineering — it is what makes the most frequent operation (login) fast
+and lock-free against the least frequent operation (profile lookup).
 
-  - users: login, display_name, email almost never change.
-    Low-churn. Fits perfectly in buffer cache. Rarely bloated.
+    ┌─────────────────────┬──────────────────────────┬───────────────────────┐
+    │ Table                │ Written                  │ Read                  │
+    ├─────────────────────┼──────────────────────────┼───────────────────────┤
+    │ User                 │ Rarely (signup, profile  │ Constantly — every    │
+    │                      │ edit)                    │ request needs name,   │
+    │                      │                          │ email, school_id      │
+    ├─────────────────────┼──────────────────────────┼───────────────────────┤
+    │ UserCredentials      │ Every login attempt      │ Only at login time    │
+    │                      │ (failed_login_attempts,  │                       │
+    │                      │ last_login_at), every    │                       │
+    │                      │ password change          │                       │
+    ├─────────────────────┼──────────────────────────┼───────────────────────┤
+    │ UserVerification     │ Once per channel (email  │ Rarely — only during  │
+    │                      │ verify, phone verify)    │ verification flow     │
+    ├─────────────────────┼──────────────────────────┼───────────────────────┤
+    │ UserLoginHistory     │ Every single login       │ Almost never — only   │
+    │                      │ attempt (success/fail)   │ security audits       │
+    └─────────────────────┴──────────────────────────┴───────────────────────┘
 
-  - user_credentials: password_hash changes maybe once a year.
-    Separating it means password resets don't bloat the identity row.
+Why this matters for performance:
+  - A profile page request (GET /users/me) only touches `users`. It never
+    locks rows that a concurrent login attempt is updating in `user_credentials`.
+  - `user_login_history` is insert-only and grows fast (millions of rows at
+    scale). Keeping it separate means it never bloats the `users` table's
+    row size, which would otherwise slow down every single SELECT on `users`.
+  - `password_hash` is the single most sensitive column in the entire service.
+    Isolating it in `user_credentials` means a accidental `SELECT *` on `users`
+    in application code can never leak a password hash into a log or API
+    response — the column simply isn't there.
 
-  - user_security: failed_login_attempts resets on every login.
-    At 500,000 users with brute-force protection this table gets
-    a lot of tiny writes. Keeping it separate means those rapid
-    counter updates never bloat the identity or password rows.
+REFRESH TOKEN — WHY IT IS NOT A COLUMN HERE
+---------------------------------------------
+Your original column list included `refresh_token` as a single column on the
+user row. This does not survive multi-device login (a teacher logged in on
+both their phone and laptop would overwrite each other's token). Refresh
+tokens belong in the session/device model (`session.py`, covered separately
+in this service) where one row exists per active device/session, not one
+column per user. This file does not define that table.
 
-Login hot-path (read):
-    Two queries — users + user_security (or a single JOIN, still fast).
-    Credentials only fetched after username/lock checks pass.
+PASSWORD DELIVERY FLOW (per your requirement)
+------------------------------------------------
+School admin creates a user → system generates a random alphanumeric
+password → password is sent via email + SMS → `must_change_password = True`
+is set → on first successful login, the user is forced through the change
+password flow before reaching their dashboard. No reset link is used for the
+very first password (your instinct that a link is awkward for a young
+student user is correct — a typed temporary password is simpler on a school
+shared/parent device). Reset *links* are still used later for forgotten
+password recovery (see endpoint list below), since at that point the user
+already has a verified email to receive the link on.
 
-No user_type column:
-    Removed. The primary UserRole record tells you the person's
-    category (STUDENT, TEACHER, etc.). The API layer reads the
-    primary role to route profile fetches to the right domain service.
-
-Multi-Tenancy:
-    Users are scoped to (tenant_id, school_id).
-    A parent with children in two schools has two rows in each table.
-
-No public signup:
-    All users created by School Admin.
+ALL MODELS IN THIS FILE
+-------------------------
+    User               → users table              (identity, profile)
+    UserCredentials    → user_credentials table    (password, lockout, login security)
+    UserVerification   → user_verifications table   (email/phone verification status)
+    UserLoginHistory    → user_login_history table   (append-only login audit trail)
 """
+
+from __future__ import annotations
+
+import enum
 
 from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Enum,
     ForeignKey,
-    Index,
-    Integer,
+    SmallInteger,
     String,
-    Text,
     UniqueConstraint,
+    Index,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import INET, UUID
 from sqlalchemy.orm import relationship
 
 from .base import BaseModel
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TABLE 1 — USERS
-# Identity anchor. Rarely mutated after creation.
+# ENUMS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class LoginFailureReason(str, enum.Enum):
+    """
+    Classifies why a login attempt failed. Stored on UserLoginHistory.
+    Used for security analytics (e.g. detecting brute-force patterns) and
+    for showing the user a precise-enough-but-not-too-precise error message.
+    """
+    BAD_PASSWORD = "BAD_PASSWORD"
+    USER_NOT_FOUND = "USER_NOT_FOUND"
+    ACCOUNT_LOCKED = "ACCOUNT_LOCKED"
+    ACCOUNT_INACTIVE = "ACCOUNT_INACTIVE"
+    PASSWORD_EXPIRED = "PASSWORD_EXPIRED"
+    OTP_INVALID = "OTP_INVALID"
+    OTP_EXPIRED = "OTP_EXPIRED"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# USER — Identity & Profile (read-heavy, write-rare)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class User(BaseModel):
     """
-    Identity record — one row per person per school.
+    Central identity record. One row per login-capable person per school.
 
-    Holds only stable identity fields:
-        - Login handle (username)
-        - Contact channels (email, phone)
-        - Display name and avatar
-        - Account active flag
-        - 2FA on/off state (secrets live in user_mfa)
+    A person with children in two different schools (e.g. a parent) gets
+    TWO separate User rows — one per (tenant_id, school_id) scope — never
+    one row shared across schools. This keeps every authorization decision
+    scoped to a single school without cross-school leakage risk.
 
-    Does NOT hold:
-        - Password fields         → user_credentials
-        - Failed attempt counters → user_security
-        - Business data           → domain services (academic, hr, etc.)
+    This table is intentionally "thin." It holds only what is needed to:
+      a) identify who this person is (name, contact info)
+      b) know which tenant/school they belong to
+      c) render their profile in a UI (photo, display name)
 
-    Username conventions (set at creation, never changed):
-        STUDENT  → Admission Number   ADM-2024-001
-        TEACHER  → Employee Code      EMP-0042
-        PARENT   → System-generated   PAR-20240901-7391
-        ADMIN    → Assigned by staff  admin.greenvalley
-        STAFF    → Employee Code      STF-0019
+    It holds NO password, NO verification status, NO login security state —
+    those live in the sibling tables below, looked up only when actually
+    needed (i.e. at login time, not on every profile page view).
+
+    Username convention (set once at creation, never changed):
+        STUDENT      → Admission Number   (e.g. "ADM-2024-001")
+        TEACHER/STAFF → Employee Code     (e.g. "EMP-0042")
+        PARENT       → Phone number or auto-generated "PAR-0091"
+        SCHOOL_ADMIN → Email prefix or platform-assigned
     """
 
     __tablename__ = "users"
     __table_args__ = (
-        UniqueConstraint(
-            "tenant_id", "school_id", "username",
-            name="uq_auth_user_username",
-        ),
-        UniqueConstraint(
-            "tenant_id", "school_id", "email",
-            name="uq_auth_user_email",
-        ),
-        # Primary login lookup
-        Index("ix_auth_user_login", "school_id", "username", "is_deleted"),
-        # List all active users in a school
-        Index("ix_auth_user_school_active", "school_id", "is_active", "is_deleted"),
+        UniqueConstraint("tenant_id", "school_id", "username", name="uq_users_tenant_school_username"),
+        UniqueConstraint("tenant_id", "school_id", "email", name="uq_users_tenant_school_email"),
+        UniqueConstraint("tenant_id", "school_id", "mobile_number", name="uq_users_tenant_school_mobile"),
+        Index("idx_users_tenant_school_active", "tenant_id", "school_id", "is_active"),
+        Index("idx_users_name", "last_name", "first_name"),
         {
             "schema": "auth",
             "comment": (
-                "User identity anchor. One row per person per school. "
-                "Low-churn: only stable identity fields. "
-                "Credentials and security counters are in satellite tables."
+                "Central identity table. One row per user per school. "
+                "Holds profile/contact info only — no password, no login security state."
             ),
         },
     )
 
-    # ── Scoping ────────────────────────────────────────────────────────────────
+    # ── Tenant & School Scoping ────────────────────────────────────────────────
     tenant_id = Column(
         UUID(as_uuid=True),
         nullable=False,
         index=True,
         comment=(
-            "Org boundary. Soft FK → platform.tenants.id. "
-            "No hard FK — avoid cross-service constraint."
+            "Owning tenant. Soft FK → platform.tenants.id (no hard FK across "
+            "service database boundaries)."
         ),
     )
     school_id = Column(
         UUID(as_uuid=True),
         nullable=False,
         index=True,
+        comment="Owning school. Soft FK → platform.schools.id.",
+    )
+
+    # ── Login Identity ─────────────────────────────────────────────────────────
+    username = Column(
+        String(50),
+        nullable=False,
         comment=(
-            "School boundary. Soft FK → platform.schools.id. "
-            "RBAC and billing are scoped here, not at tenant level."
+            "Unique login handle within (tenant_id, school_id). Set once at "
+            "creation by the school admin or onboarding flow. Never changed "
+            "after creation — see PATCH /users/:id/username being intentionally "
+            "absent from the endpoint list below."
         ),
     )
-
-    # ── Login Handle ──────────────────────────────────────────────────────────
-    username = Column(
-        String(100),
-        nullable=False,
-        comment="Unique login handle within the school. Immutable after creation.",
-    )
-
-    # ── Contact Channels ──────────────────────────────────────────────────────
     email = Column(
         String(255),
         nullable=True,
-        comment="Optional. Used for password reset and notifications.",
-    )
-    phone = Column(
-        String(20),
-        nullable=True,
-        index=True,
-        comment="Optional. Used for SMS OTP.",
-    )
-
-    # ── Display ───────────────────────────────────────────────────────────────
-    display_name = Column(
-        String(255),
-        nullable=False,
         comment=(
-            "Name shown in UI. Synced from domain service at creation. "
-            "E.g. 'Rahul Sharma'. Not the legal-name source of truth."
+            "Contact + recovery email. Nullable because young students may not "
+            "have one — in that case a parent's email is typically used for "
+            "notifications instead, tracked at the Academic Service profile level."
         ),
     )
-    avatar_url = Column(
-        Text,
+    mobile_number = Column(
+        String(10),
         nullable=True,
-        comment="CDN URL of profile picture. Managed by media-service.",
+        comment="E.164 format, e.g. '+919876543210'. Used for SMS OTP and password delivery.",
     )
 
-    # ── Account Gate ──────────────────────────────────────────────────────────
+    # ── Profile ────────────────────────────────────────────────────────────────
+    first_name = Column(String(50), nullable=False, comment="Given name.")
+    middle_name = Column(String(50), nullable=True, comment="Optional middle name.")
+    last_name = Column(String(50), nullable=False, comment="Family/surname.")
+
+    # ── Status ────────────────────────────────────────────────────────────────
     is_active = Column(
         Boolean,
         nullable=False,
         default=True,
         index=True,
-        comment="False = deactivated by admin. User cannot log in.",
+        comment=(
+            "False = account disabled by school admin (does not delete the row; "
+            "use is_deleted from BaseModel for actual removal)."
+            "True for every admin-created user at creation time. Forces the "
+            "mandatory change-password step on first successful login before "
+            "any other endpoint becomes accessible. Set to False once the "
+            "user completes their first self-chosen password."
+        ),
     )
     is_verified = Column(
         Boolean,
         nullable=False,
         default=False,
-        comment="True after email or phone OTP is confirmed.",
-    )
-    email_verified_at = Column(
-        DateTime(timezone=True),
-        nullable=True,
-    )
-    phone_verified_at = Column(
-        DateTime(timezone=True),
-        nullable=True,
-    )
-
-    # ── 2FA State Flags ───────────────────────────────────────────────────────
-    # Flags live here (read on every login). Secrets live in user_mfa.
-    two_factor_enabled = Column(
-        Boolean,
-        nullable=False,
-        default=False,
-        comment="2FA is enabled. Check user_mfa for the active secret.",
-    )
-    two_factor_method = Column(
-        String(10),
-        nullable=True,
-        comment="Active 2FA channel: SMS | EMAIL | TOTP. Null if disabled.",
+        index=True,
+        comment=(
+            "Derived/cached flag: True only when at least the primary contact "
+            "channel (email OR mobile, per tenant policy) is verified. The "
+            "authoritative per-channel state lives on UserVerification — this "
+            "column exists purely so list/filter queries on `users` don't need "
+            "a join to UserVerification for the common case."
+        ),
     )
 
-    # ── Relationships ──────────────────────────────────────────────────────────
+   # ── Relationships ──────────────────────────────────────────────────────────
     credentials = relationship(
         "UserCredentials",
         back_populates="user",
-        cascade="all, delete-orphan",
         uselist=False,
-        lazy="select",
+        cascade="all, delete-orphan",
     )
-    security = relationship(
-        "UserSecurity",
+    verification = relationship(
+        "UserVerification",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    login_history = relationship(
+        "UserLoginHistory",
         back_populates="user",
         cascade="all, delete-orphan",
-        uselist=False,
-        lazy="select",
-    )
-    user_roles = relationship(
-        "UserRole",
-        back_populates="user",
-        cascade="all, delete-orphan",
-        foreign_keys="UserRole.user_id",
     )
     sessions = relationship(
         "UserSession",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    mfa_configs = relationship(
-        "UserMFA",
+    otps = relationship(
+        "UserOTP",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    devices = relationship(
-        "UserDevice",
+    user_role = relationship(
+        "UserRole",
         back_populates="user",
+        uselist=False,
         cascade="all, delete-orphan",
     )
-    login_history = relationship(
-        "UserLoginHistory",
-        back_populates="user",
-        foreign_keys="UserLoginHistory.user_id",
-    )
-    password_resets = relationship(
-        "PasswordResetToken",
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-    password_history = relationship(
-        "PasswordHistory",
-        back_populates="user",
-        cascade="all, delete-orphan",
-        foreign_keys="PasswordHistory.user_id",
-    )
+
     def __repr__(self) -> str:
-        return (
-            f"<User username={self.username!r} "
-            f"school_id={self.school_id} "
-            f"active={self.is_active}>"
-        )
+        return f"<User id={self.id} username={self.username!r} school_id={self.school_id}>"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TABLE 2 — USER CREDENTIALS
-# Password state. Changes only on reset / expiry. Low write frequency.
+# USER CREDENTIALS — Password & Login Security (write-heavy, narrow read)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class UserCredentials(BaseModel):
     """
-    Password hash and policy state — one row per user.
+    Password and login-security state for one user. Strict 1-to-1 with User.
 
-    Separated from users so password resets don't cause MVCC bloat
-    on the identity row. Password changes ~1-2 times per year per user.
+    This table absorbs every write that happens on EVERY login attempt
+    (success or failure) — failed_login_attempt increments, last_login_at
+    updates, is_locked toggles. By isolating these hot writes here, a
+    profile read (`SELECT * FROM users WHERE id = ...`) never contends with
+    a concurrent login attempt's row lock on this table.
 
-    The password_hash uses Argon2id. The salt is embedded in the hash
-    string by the Argon2id spec, but stored separately here for explicit
-    access during verification.
-
-    This row is fetched AFTER the lock-check passes in user_security.
-    If the account is locked, we never touch this table at all.
+    password_hash is the only column in the entire service that should ever
+    contain password material, and it is always a hash (Argon2id), never
+    plaintext. The random alphanumeric password generated at user creation
+    time is hashed before this row is even written — it exists in plaintext
+    only transiently in the email/SMS dispatch payload, never persisted.
     """
 
     __tablename__ = "user_credentials"
-    __table_args__ = {
-        "schema": "auth",
-        "comment": (
-            "Password hash and policy flags. 1-to-1 with users. "
-            "Separated to prevent password resets bloating the identity row."
-        ),
-    }
-
-    # ── Parent FK ─────────────────────────────────────────────────────────────
-    user_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("auth.users.id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
-        index=True,
-        comment="FK → auth.users.id",
-    )
-
-    # ── Password Hash ─────────────────────────────────────────────────────────
-    password_hash = Column(
-        Text,
-        nullable=False,
-        comment=(
-            "Argon2id hash of the password. "
-            "Format: $argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>"
-        ),
-    )
-    password_salt = Column(
-        Text,
-        nullable=False,
-        comment="Per-user salt. Embedded in Argon2id output but stored explicitly.",
-    )
-
-    # ── Password Policy ───────────────────────────────────────────────────────
-    must_change_password = Column(
-        Boolean,
-        nullable=False,
-        default=True,
-        comment=(
-            "True on first login or after admin reset. "
-            "User must set a new password before accessing the system."
-        ),
-    )
-    is_password_expired = Column(
-        Boolean,
-        nullable=False,
-        default=False,
-        comment="True when password has passed its expiry date.",
-    )
-    password_changed_at = Column(
-        DateTime(timezone=True),
-        nullable=True,
-        comment="When the user last changed their password.",
-    )
-    password_expires_at = Column(
-        DateTime(timezone=True),
-        nullable=True,
-        comment="When the current password expires. Null = no expiry policy.",
-    )
-
-    # ── Relationship ──────────────────────────────────────────────────────────
-    user = relationship(
-        "User",
-        back_populates="credentials",
-        foreign_keys=[user_id],
-    )
-
-    def __repr__(self) -> str:
-        return (
-            f"<UserCredentials user_id={self.user_id} "
-            f"expired={self.is_password_expired} "
-            f"must_change={self.must_change_password}>"
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# TABLE 3 — USER SECURITY
-# Live counters. Updated on every login attempt. High write frequency.
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class UserSecurity(BaseModel):
-    """
-    Brute-force protection counters and lock state — one row per user.
-
-    This is the MOST frequently written table in the auth service.
-    failed_login_attempts is incremented on every failed attempt and
-    reset to 0 on every success. At 500K users, keeping these small
-    integer updates isolated means the MVCC dead-tuple bloat from
-    these rapid writes stays on this narrow table, not on the wide
-    users row.
-
-    Login sequence:
-        1. SELECT users WHERE username = ? AND school_id = ?    (users)
-        2. SELECT * FROM user_security WHERE user_id = ?        (this table)
-           → if is_locked AND locked_until > NOW(): reject early
-        3. SELECT password_hash FROM user_credentials ...       (credentials)
-           → verify password
-        4. On success: reset failed_login_attempts, set last_login_*
-        5. On failure: increment failed_login_attempts, maybe set is_locked
-    """
-
-    __tablename__ = "user_security"
     __table_args__ = (
-        Index("ix_auth_user_security_locked", "is_locked", "locked_until"),
         {
             "schema": "auth",
             "comment": (
-                "Brute-force protection state. 1-to-1 with users. "
-                "High-churn: updated on every login attempt. "
-                "Separated to prevent rapid writes bloating the identity row."
+                "1-to-1 with users. Password hash and all login-security "
+                "counters. Isolated so login writes never lock profile reads."
             ),
         },
     )
 
-    # ── Parent FK ─────────────────────────────────────────────────────────────
+    # ── Link ──────────────────────────────────────────────────────────────────
     user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("auth.users.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
         index=True,
-        comment="FK → auth.users.id",
+        comment="FK → users.id. Unique enforces strict 1-to-1.",
     )
 
-    # ── Brute-Force Counters ──────────────────────────────────────────────────
-    failed_login_attempts = Column(
-        Integer,
+    # ── Password ──────────────────────────────────────────────────────────────
+    password_hash = Column(
+        String(255),
         nullable=False,
-        default=0,
         comment=(
-            "Consecutive failures since last success. "
-            "Reset to 0 on success. "
-            "Triggers lock when it exceeds the school's threshold (default: 5)."
+            "Argon2id hash of the current password. The school-admin-generated "
+            "random alphanumeric temporary password is hashed into this field "
+            "immediately on user creation — never stored in plaintext anywhere."
         ),
     )
+    password_expired_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment=(
+            "Timestamp after which the password must be changed (tenant-level "
+            "password-age policy, if enabled). NULL = no expiry enforced."
+        ),
+    )
+    password_changed_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When the password was last changed by the user themselves.",
+    )
+    password_change_count = Column(
+        SmallInteger,
+        nullable=False,
+        default=0,
+        comment="Lifetime count of password changes. Useful for security analytics.",
+    )
+    
+    # max session ──────────────────────────────────────────────────────────────
+    max_concurrent_sessions = Column(
+        SmallInteger,
+        nullable=True,
+        default=None,
+        comment=(
+            "Per-user override for max concurrent sessions. "
+            "NULL = use tenant default. Checked at login time before creating "
+            "a new session row. If user already has N active sessions and "
+            "this limit is reached, oldest session is revoked (or login is blocked "
+            "based on tenant policy)."
+        ),
+    )
+
+    # ── Login Security / Lockout ──────────────────────────────────────────────
     is_locked = Column(
         Boolean,
         nullable=False,
         default=False,
         index=True,
-        comment="True = account is locked. Check locked_until for auto-unlock time.",
+        comment=(
+            "True after failed_login_attempt crosses the configured threshold. "
+            "Blocks login entirely until unlocked by admin or lockout window "
+            "elapses (see locked_until)."
+        ),
     )
     locked_until = Column(
         DateTime(timezone=True),
         nullable=True,
         comment=(
-            "When the lock expires. "
-            "Null = not locked, or permanent admin-lock. "
-            "If locked_until < NOW() the lock is lifted automatically."
+            "Auto-unlock timestamp for time-based lockouts (e.g. 15-minute "
+            "lockout after 5 failed attempts). NULL with is_locked=True means "
+            "a permanent lock requiring manual admin unlock."
         ),
     )
+    failed_login_attempt = Column(
+        SmallInteger,
+        nullable=False,
+        default=0,
+        comment="Consecutive failed attempts since the last successful login. Resets to 0 on success.",
+    )
 
-    # ── Last Login Snapshot ───────────────────────────────────────────────────
+    # ── Last Successful Login ─────────────────────────────────────────────────
     last_login_at = Column(
         DateTime(timezone=True),
         nullable=True,
-        comment="Timestamp of most recent successful login.",
+        comment="Timestamp of the most recent successful login.",
     )
     last_login_ip = Column(
-        String(45),
+        INET,
         nullable=True,
-        comment="IP of most recent successful login. IPv4 or IPv6.",
+        comment="IP address of the most recent successful login.",
     )
 
     # ── Relationship ──────────────────────────────────────────────────────────
-    user = relationship(
-        "User",
-        back_populates="security",
-        foreign_keys=[user_id],
+    user = relationship("User", back_populates="credentials")
+
+    def __repr__(self) -> str:
+        return f"<UserCredentials user_id={self.user_id} locked={self.is_locked}>"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# USER VERIFICATION — Email & Mobile Verification State
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class UserVerification(BaseModel):
+    """
+    Tracks email and mobile verification independently, since a user may
+    verify one channel before (or without ever verifying) the other.
+
+    Kept separate from UserCredentials deliberately: verification is a
+    once-per-channel write event, while credentials absorb a write on
+    every login attempt. Mixing them would mean a verification-status
+    read takes on lock contention from unrelated login traffic.
+
+    The actual OTP codes / verification tokens sent to the user are NOT
+    stored here — they live in a short-lived, TTL-backed Redis key (or a
+    dedicated otp_requests table if durability across Redis restarts is
+    required). This table only records the OUTCOME (verified yes/no, when).
+    """
+
+    __tablename__ = "user_verifications"
+    __table_args__ = (
+        {
+            "schema": "auth",
+            "comment": (
+                "1-to-1 with users. Per-channel verification outcome only — "
+                "OTP codes themselves live in Redis, not here."
+            ),
+        },
     )
+
+    # ── Link ──────────────────────────────────────────────────────────────────
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("auth.users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="FK → users.id. Unique enforces strict 1-to-1.",
+    )
+
+    # ── Email Verification ────────────────────────────────────────────────────
+    email_verified = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="True once the user has confirmed access to the email on their User row.",
+    )
+    email_verified_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When email verification completed.",
+    )
+
+    # ── Mobile Verification ───────────────────────────────────────────────────
+    mobile_number_verified = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="True once the user has confirmed access to the mobile number via OTP.",
+    )
+    mobile_number_verified_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When mobile verification completed.",
+    )
+
+    # ── Relationship ──────────────────────────────────────────────────────────
+    user = relationship("User", back_populates="verification")
 
     def __repr__(self) -> str:
         return (
-            f"<UserSecurity user_id={self.user_id} "
-            f"locked={self.is_locked} "
-            f"attempts={self.failed_login_attempts}>"
+            f"<UserVerification user_id={self.user_id} "
+            f"email={self.email_verified} mobile={self.mobile_number_verified}>"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# USER LOGIN HISTORY — Append-only Audit Trail (insert-heavy, rarely read)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class UserLoginHistory(BaseModel):
+    """
+    One row per login attempt, successful or failed. Append-only — never
+    updated, never deleted in normal operation (retention/archival jobs
+    aside).
+
+    This is the highest write-volume table in the entire Auth Service: every
+    single login attempt by every user at every school inserts one row here.
+    It is queried almost never in the live request path — only for security
+    investigations, suspicious-activity dashboards, and compliance exports.
+    For that reason this table should be partitioned by month in production
+    (e.g. PostgreSQL native partitioning on created_at) so old partitions can
+    be archived or dropped without touching live data.
+    """
+
+    __tablename__ = "user_login_history"
+    __table_args__ = (
+        Index("idx_login_history_user_created", "user_id", "created_at"),
+        {
+            "schema": "auth",
+            "comment": (
+                "Append-only login audit trail. Partition by month in "
+                "production. Never updated after insert."
+            ),
+        },
+    )
+
+    # ── Link ──────────────────────────────────────────────────────────────────
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("auth.users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment=(
+            "FK → users.id. Nullable + SET NULL on delete: a failed login "
+            "attempt against a username that doesn't exist still gets logged "
+            "(for brute-force detection) with user_id left NULL."
+        ),
+    )
+
+    # ── Attempt Details ────────────────────────────────────────────────────────
+    username_attempted = Column(
+        String(50),
+        nullable=True,
+        comment="The username as typed, captured even on failure (when user_id could not be resolved).",
+    )
+    ip_address = Column(
+        INET,
+        nullable=False,
+        comment="Source IP of the login attempt.",
+    )
+    user_agent = Column(
+        String(500),
+        nullable=True,
+        comment="Raw User-Agent header from the request, for device/browser analytics.",
+    )
+    success = Column(
+        Boolean,
+        nullable=False,
+        index=True,
+        comment="True if the login attempt succeeded.",
+    )
+    failure_reason = Column(
+        Enum(LoginFailureReason, name="login_failure_reason_enum", schema="auth"),
+        nullable=True,
+        comment="Populated only when success=False. NULL when success=True.",
+    )
+
+    # ── Session Reference ──────────────────────────────────────────────────────
+    session_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("auth.user_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="FK → user_sessions.id for successful logins. NULL for failed attempts.",
+    )
+
+    # ── Relationship ──────────────────────────────────────────────────────────
+    user = relationship("User", back_populates="login_history")
+
+    def __repr__(self) -> str:
+        return f"<UserLoginHistory user_id={self.user_id} success={self.success}>"
+    
+    
