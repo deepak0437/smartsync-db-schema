@@ -1,82 +1,44 @@
-"""
-Platform Service — Models Package
+"""SmartSync Platform models — public API.
 
-Exposes all SQLAlchemy model classes for use across the service.
-Import from here, not from individual files.
+All models and enums are re-exported here for clean imports
+and Alembic metadata discovery.
 
-Usage:
-    from app.models import Tenant, TenantSubscription, SubscriptionPlan
-    from app.models import TenantOnboarding, BillingInvoice
-    from app.models import SubscriptionUsageSnapshot, TenantFeatureFlag
-    from app.models import Base  # for Alembic metadata
+Usage::
 
-File → Model mapping:
-    base.py                → Base, BaseModel
-    tenant.py              → Tenant, TenantStatus, TenantType
-    tenant_onboarding.py   → TenantOnboarding, OnboardingStage, OnboardingChannel
-    subscription_plan.py   → SubscriptionPlan, PlanTier, BillingCycle, PricingModel
-    tenant_subscription.py → TenantSubscription, SubscriptionStatus, SubscriptionSource
-    billing_and_flags.py   → BillingInvoice, InvoiceStatus
-                          → SubscriptionUsageSnapshot
-                          → TenantFeatureFlag
+    from app.models import Tenant, School, Plan, Subscription
+    from app.models import TenantStatus, SchoolStatus
 """
 
-# ── Base (must be imported first — all models depend on it) ─────────────────
-from .base import Base, BaseModel
-
-# ── Tenant ───────────────────────────────────────────────────────────────────
-from .tenant import Tenant, TenantStatus, TenantType
-
-# ── Onboarding ───────────────────────────────────────────────────────────────
-from .tenant_onboarding import TenantOnboarding, OnboardingStage, OnboardingChannel
-
-# ── Subscription Plan (product catalog) ─────────────────────────────────────
-from .subscription_plan import (
-    SubscriptionPlan,
-    PlanTier,
-    BillingCycle,
-    PricingModel,
-)
-
-# ── Tenant Subscription (purchased plan per tenant) ──────────────────────────
-from .tenant_subscription import (
-    TenantSubscription,
+from app.models.enums import (
+    AddonStatus,
+    HistoryEventType,
+    PlanType,
+    PlanVariant,
+    SchoolStatus,
     SubscriptionStatus,
-    SubscriptionSource,
+    TenantStatus,
 )
-
-# ── Billing & Feature Flags ───────────────────────────────────────────────────
-from .billing_and_flags import (
-    BillingInvoice,
-    InvoiceStatus,
-    SubscriptionUsageSnapshot,
-    TenantFeatureFlag,
-)
+from app.models.expansion_addon import ExpansionAddon
+from app.models.plan import Plan
+from app.models.school import School
+from app.models.subscription import Subscription
+from app.models.subscription_history import SubscriptionHistory
+from app.models.tenant import Tenant
 
 __all__ = [
-    # Base
-    "Base",
-    "BaseModel",
-    # Tenant
-    "Tenant",
+    # Enums
     "TenantStatus",
-    "TenantType",
-    # Onboarding
-    "TenantOnboarding",
-    "OnboardingStage",
-    "OnboardingChannel",
-    # Plans
-    "SubscriptionPlan",
-    "PlanTier",
-    "BillingCycle",
-    "PricingModel",
-    # Subscriptions
-    "TenantSubscription",
+    "SchoolStatus",
+    "PlanType",
+    "PlanVariant",
     "SubscriptionStatus",
-    "SubscriptionSource",
-    # Billing & Flags
-    "BillingInvoice",
-    "InvoiceStatus",
-    "SubscriptionUsageSnapshot",
-    "TenantFeatureFlag",
+    "AddonStatus",
+    "HistoryEventType",
+    # Models
+    "Tenant",
+    "School",
+    "Plan",
+    "Subscription",
+    "ExpansionAddon",
+    "SubscriptionHistory",
 ]

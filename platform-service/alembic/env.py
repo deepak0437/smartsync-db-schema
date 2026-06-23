@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # ---------------------------------------------------------------------------
 # Import all models so Alembic can detect schema changes
 # ---------------------------------------------------------------------------
-from app.db.base import Base, metadata  # noqa: F401 — registers all models
+from app.db.base import PlatformBase
+import app.models # noqa: F401 — registers all models
 
 # ---------------------------------------------------------------------------
 # Alembic Config
@@ -38,7 +39,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Target metadata for autogenerate
-target_metadata = metadata
+target_metadata = PlatformBase.metadata
 
 # Include schemas in autogenerate
 def include_object(object, name, type_, reflected, compare_to):

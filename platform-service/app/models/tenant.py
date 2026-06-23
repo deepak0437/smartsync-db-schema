@@ -1,133 +1,73 @@
-"""
-Tenant Model - Multi-Tenant Organization Entity.
+"""Tenant model — top-level organizational container.
 
-Module Purpose:
-  Represents customer organizations in the SmartSync platform.
-  Each tenant can have multiple schools, and each school can have separate subscriptions.
-
-Architecture:
-  - Tenant (parent) -> Schools (children, 1-to-many)
-  - Tenant -> SchoolSubscriptions (1-to-many, for billing tracking)
-  - Supports different organizational types: SINGLE_SCHOOL, SCHOOL_GROUP, GOVERNMENT_BLOCK
-
-Usage:
-  Used in platform-service as the primary multi-tenancy boundary.
-  All schools are linked to exactly one tenant.
+A tenant owns one or more schools and has no billing of its own.
 """
 
-import enum
+from __future__ import annotations
 
-from sqlalchemy import Column, Enum, String
-from sqlalchemy.orm import relationship
+from typing import TYPE_CHECKING, List
 
-from .base import BaseModel
+from sqlalchemy import Enum as SAEnum, Index, String, text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.db.base import PlatformBase
+from app.db.mixins import PrimaryKeyMixin, SoftDeleteMixin
+from app.models.enums import TenantStatus
 
-class TenantStatus(str, enum.Enum):
-    """
-    Tenant organizational lifecycle status.
-
-    States:
-        ACTIVE: Organization is operational
-        INACTIVE: Organization temporarily paused
-        ARCHIVED: Historical record, no longer in use
-        PENDING: By default status will be pending
-    
-    Note: Billing/subscription status is managed at School level.
-    """
-
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
-    ARCHIVED = "ARCHIVED"
-    PENDING  = "PENDING"
+if TYPE_CHECKING:
+    from app.models.school import School
 
 
-class TenantType(str, enum.Enum):
-    """
-    Organizational structure type.
+class Tenant(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
+    """Top-level organizational container.
 
-    Types:
-        SINGLE_SCHOOL: Independent school
-        SCHOOL_GROUP: Education company with multiple schools
-        GOVERNMENT_BLOCK: Government education department/block
-        UNIVERSITY: Higher education institution
-    """
-
-    SINGLE_SCHOOL = "SINGLE_SCHOOL"
-    SCHOOL_GROUP = "SCHOOL_GROUP"
-    GOVERNMENT_BLOCK = "GOVERNMENT_BLOCK"
-
-
-class Tenant(BaseModel):
-    """
-    Represents a customer organization.
-
-    Examples:
-        - ABC Public School
-        - Green Valley Education Group
-        - Narayana Educational Society
+    Owns one or more :class:`School` instances. Carries no billing
+    of its own — subscriptions are scoped to schools.
     """
 
     __tablename__ = "tenants"
+    __table_args__ = (
+        Index(
+            "uq_tenants_slug_active",
+            "slug",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
-    name = Column(
+    # ── Columns ──────────────────────────────────────────────────────────
+    name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
-        index=True,
     )
-
-    code = Column(
-        String(50),
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-
-    type = Column(
-        Enum(TenantType, name="tenant_type_enum"),
-        nullable=False,
-        default=TenantType.SINGLE_SCHOOL,
-    )
-
-    slug = Column(
+    slug: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
-        unique=True,
-        index=True,
     )
-
-    website = Column(
-        String(255),
-        nullable=True,
-    )
-
-    status = Column(
-        Enum(TenantStatus, name="tenant_status_enum"),
+    status: Mapped[TenantStatus] = mapped_column(
+        SAEnum(
+            TenantStatus,
+            name="tenant_status",
+            schema="platform",
+            create_type=False,
+        ),
         nullable=False,
-        default=TenantStatus.PENDING,
-        index=True,
+        server_default=TenantStatus.ACTIVE.value,
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata",
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
     )
 
-    schools = relationship(
+    # ── Relationships ────────────────────────────────────────────────────
+    schools: Mapped[List["School"]] = relationship(
         "School",
         back_populates="tenant",
-        cascade="all, delete-orphan",
-    )
-
-    subscriptions = relationship(
-        "SchoolSubscription",
-        back_populates="tenant",
+        lazy="selectin",
     )
 
     def __repr__(self) -> str:
-        """
-        String representation of Tenant.
-
-        Returns:
-            String in format: <Tenant(id=uuid, organization_name=ABC Public School)>
-        """
-        return (
-            f"<Tenant(id={self.id}, "
-            f"organization_name={self.name})>"
-        )
-        
+        return f"<Tenant id={self.id!s} slug={self.slug!r} status={self.status.value}>"

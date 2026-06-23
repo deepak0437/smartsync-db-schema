@@ -1,200 +1,116 @@
-"""
-School Model - Physical School/Campus Entity.
+"""School model — the operational and billing unit.
 
-Module Purpose:
-  Represents individual school locations within a tenant organization.
-  Each school has independent subscriptions and can have multiple domains.
-
-Architecture:
-  - School (child) -> Tenant (parent, many-to-one)
-  - School -> SchoolSubscriptions (1-to-many, billing per school)
-  - School -> SchoolDomain (1-to-1, one domain per school)
-  - Billing boundary is at school level
-
-Key Features:
-  - Subdomain-based isolation
-  - Board type support (CBSE, ICSE, STATE, IB, IGCSE)
-  - Address and contact information
-  - Status tracking (ACTIVE, INACTIVE, ARCHIVED)
-
-Usage:
-  Every school must belong to exactly one tenant.
-  Multiple schools can belong to same tenant (school groups).
+Each school belongs to exactly one tenant. Subscriptions are scoped here.
+Unique subdomain per school (RFC-1035 validated).
 """
 
-import enum
+from __future__ import annotations
 
-from sqlalchemy import Column, Enum, ForeignKey, Integer, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+import uuid
+from typing import TYPE_CHECKING, List, Optional
 
-from .base import BaseModel
+from sqlalchemy import (
+    CheckConstraint,
+    Enum as SAEnum,
+    ForeignKey,
+    Index,
+    String,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.db.base import PlatformBase
+from app.db.mixins import PrimaryKeyMixin, SoftDeleteMixin
+from app.models.enums import SchoolStatus
 
-class SchoolStatus(str, enum.Enum):
-    """
-    School operational and subscription status.
-
-    States:
-        TRIAL: Evaluation period, limited features
-        ACTIVE: Active subscription, fully operational
-        INACTIVE: Temporarily paused (payment issue or seasonal closure)
-        SUSPENDED: Blocked due to payment failure
-        CANCELLED: Subscription ended voluntarily
-        ARCHIVED: Historical record, no access
-        PENDING: By default status will be pending
-    
-    Note: Since billing is at school level, subscription status is tracked here.
-    """
-
-    TRIAL = "TRIAL"
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
-    SUSPENDED = "SUSPENDED"
-    CANCELLED = "CANCELLED"
-    ARCHIVED = "ARCHIVED"
-    PENDING  = "PENDING"
+if TYPE_CHECKING:
+    from app.models.subscription import Subscription
+    from app.models.tenant import Tenant
 
 
-class BoardType(str, enum.Enum):
-    """
-    Educational board/curriculum type.
+class School(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
+    """Operational and billing unit within a tenant.
 
-    Boards:
-        CBSE: Central Board of Secondary Education (India)
-        ICSE: Indian Certificate of Secondary Education
-        STATE: State board curriculum
-        IB: International Baccalaureate
-        IGCSE: International General Certificate of Secondary Education
-        OTHER: Custom or other curriculum
-    """
-
-    CBSE = "CBSE"
-    ICSE = "ICSE"
-    STATE = "STATE"
-    IB = "IB"
-    IGCSE = "IGCSE"
-    OTHER = "OTHER"
-
-
-class School(BaseModel):
-    """
-    Represents a physical school/campus.
-
-    Examples:
-        Green Valley Bangalore
-        Green Valley Hyderabad
-        ABC Public School
+    Each school has a unique subdomain and at most one active subscription
+    at any point in time.
     """
 
     __tablename__ = "schools"
-
-    tenant_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("tenants.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-
-    name = Column(
-        String(255),
-        nullable=False,
-        index=True,
-    )
-
-    code = Column(
-        String(50),
-        nullable=False,
-        index=True,
-    )
-
-    subdomain = Column(
-        String(100),
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-
-    board = Column(
-        Enum(BoardType, name="board_type_enum"),
-        nullable=True,
-    )
-
-    email = Column(
-        String(255),
-        nullable=True,
-    )
-
-    phone_number = Column(
-        String(20),
-        nullable=True,
-    )
-
-    address = Column(
-        String(255),
-        nullable=True,
-    )
-
-    city = Column(
-        String(100),
-        nullable=True,
-    )
-
-    state = Column(
-        String(100),
-        nullable=True,
-    )
-
-    country = Column(
-        String(100),
-        nullable=True,
-    )
-
-    pincode = Column(
-        String(20),
-        nullable=True,
-    )
-
-    status = Column(
-        Enum(SchoolStatus, name="school_status_enum"),
-        nullable=False,
-        default=SchoolStatus.TRIAL,
-        index=True,
-    )
-
-    tenant = relationship(
-        "Tenant",
-        back_populates="schools",
-    )
-
-    subscriptions = relationship(
-        "SchoolSubscription",
-        back_populates="school",
-    )
-
-    domain = relationship(
-        "SchoolDomain",
-        back_populates="school",
-        cascade="all, delete-orphan",
-        uselist=False,
-    )
-
     __table_args__ = (
-        UniqueConstraint(
+        CheckConstraint(
+            r"subdomain ~ '^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$'",
+            name="valid_subdomain",
+        ),
+        Index(
+            "uq_schools_subdomain_active",
+            "subdomain",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        Index(
+            "ix_schools_tenant_id_active",
             "tenant_id",
-            "code",
-            name="uq_school_tenant_code"
+            postgresql_where=text("deleted_at IS NULL"),
         ),
     )
 
-    def __repr__(self) -> str:
-        """
-        String representation of School.
+    # ── Columns ──────────────────────────────────────────────────────────
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    subdomain: Mapped[str] = mapped_column(
+        String(63),
+        nullable=False,
+    )
+    status: Mapped[SchoolStatus] = mapped_column(
+        SAEnum(
+            SchoolStatus,
+            name="school_status",
+            schema="platform",
+            create_type=False,
+        ),
+        nullable=False,
+        server_default=SchoolStatus.PENDING.value,
+    )
+    address: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+    contact_email: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    contact_phone: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata",
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
 
-        Returns:
-            String in format: <School(id=uuid, school_name=Green Valley)>
-        """
+    # ── Relationships ────────────────────────────────────────────────────
+    tenant: Mapped["Tenant"] = relationship(
+        "Tenant",
+        back_populates="schools",
+        lazy="joined",
+    )
+    subscriptions: Mapped[List["Subscription"]] = relationship(
+        "Subscription",
+        back_populates="school",
+        lazy="selectin",
+    )
+
+    def __repr__(self) -> str:
         return (
-            f"<School(id={self.id}, "
-            f"school_name={self.name})>"
+            f"<School id={self.id!s} subdomain={self.subdomain!r} "
+            f"status={self.status.value}>"
         )
