@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from app.models.plan import Plan
     from app.models.school import School
     from app.models.subscription_history import SubscriptionHistory
+    from app.models.tenant import Tenant
 
 
 class Subscription(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
@@ -93,12 +94,23 @@ class Subscription(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
             "ix_subscriptions_plan_id",
             "plan_id",
         ),
+        # Tenant-scoped active subscription queries
+        Index(
+            "ix_subscriptions_tenant_id_active",
+            "tenant_id",
+            postgresql_where=text("status = 'ACTIVE' AND deleted_at IS NULL"),
+        ),
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
     school_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("schools.id"),
         nullable=False,
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id"),
+        nullable=False,
+        comment="Denormalized from school.tenant_id for tenant-scoped queries and future sharding",
     )
     plan_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("plans.id"),
@@ -181,6 +193,10 @@ class Subscription(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
     history_entries: Mapped[List["SubscriptionHistory"]] = relationship(
         "SubscriptionHistory",
         back_populates="subscription",
+        lazy="noload",
+    )
+    tenant: Mapped["Tenant"] = relationship(
+        "Tenant",
         lazy="noload",
     )
 

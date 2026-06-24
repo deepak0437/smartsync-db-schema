@@ -67,6 +67,14 @@ class ExpansionAddon(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
             "expires_at",
             postgresql_where=text("status = 'ACTIVE'"),
         ),
+        # Prevent duplicate active addons of the same plan on the same subscription
+        Index(
+            "uq_addons_subscription_plan_active",
+            "subscription_id",
+            "plan_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE' AND deleted_at IS NULL"),
+        ),
     )
 
     # ── Columns ──────────────────────────────────────────────────────────

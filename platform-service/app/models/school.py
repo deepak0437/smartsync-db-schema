@@ -1,7 +1,8 @@
 """School model — the operational and billing unit.
 
-Each school belongs to exactly one tenant. Subscriptions are scoped here.
-Unique subdomain per school (RFC-1035 validated).
+Each school belongs to exactly one tenant. A tenant (school group)
+owns one or more schools. Subscriptions, addons, and capacity counters
+are all scoped to a school. Unique subdomain per school (RFC-1035 validated).
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
+    Text,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -53,6 +55,12 @@ class School(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
             "tenant_id",
             postgresql_where=text("deleted_at IS NULL"),
         ),
+        Index(
+            "ix_schools_state_city",
+            "state",
+            "city",
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
@@ -78,15 +86,30 @@ class School(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
         nullable=False,
         server_default=SchoolStatus.PENDING.value,
     )
-    address: Mapped[Optional[dict]] = mapped_column(
-        JSONB,
+    state: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="Indian state name or code, e.g. 'Karnataka' or 'KA'",
+    )
+    city: Mapped[Optional[str]] = mapped_column(
+        String(100),
         nullable=True,
     )
-    contact_email: Mapped[Optional[str]] = mapped_column(
+    pincode: Mapped[Optional[str]] = mapped_column(
+        String(10),
+        nullable=True,
+        comment="Indian PIN code. String to preserve leading zeros.",
+    )
+    address_line: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Full street address / landmark line",
+    )
+    email: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,
     )
-    contact_phone: Mapped[Optional[str]] = mapped_column(
+    phone_number: Mapped[Optional[str]] = mapped_column(
         String(20),
         nullable=True,
     )

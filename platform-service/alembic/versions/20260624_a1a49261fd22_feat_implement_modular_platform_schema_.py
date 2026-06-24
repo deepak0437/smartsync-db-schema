@@ -1,8 +1,8 @@
-"""feat: implement modular platform schema
+"""feat: implement modular platform schema with review changes
 
-Revision ID: bc0ccea0ee92
+Revision ID: a1a49261fd22
 Revises: 
-Create Date: 2026-06-23 16:42:32.841537+00:00
+Create Date: 2026-06-24 08:17:53.512750+00:00
 """
 
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'bc0ccea0ee92'
+revision: str = 'a1a49261fd22'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
