@@ -45,20 +45,27 @@ class PlanVariant(str, enum.Enum):
 
 
 class SubscriptionStatus(str, enum.Enum):
-    """Subscription lifecycle states."""
+    """Subscription lifecycle states.
+
+    CANCELLED is intentionally omitted — subscriptions cannot be explicitly
+    cancelled midway.  They either expire naturally or are superseded by
+    an upgrade.  For early termination, set status to EXPIRED.
+    """
 
     ACTIVE = "ACTIVE"
     EXPIRED = "EXPIRED"
-    CANCELLED = "CANCELLED"
     UPGRADED = "UPGRADED"
 
 
 class AddonStatus(str, enum.Enum):
-    """Expansion addon lifecycle states."""
+    """Expansion addon lifecycle states.
+
+    CANCELLED is intentionally omitted — once purchased, addons run
+    until expiry.  They cannot be cancelled midway.
+    """
 
     ACTIVE = "ACTIVE"
     EXPIRED = "EXPIRED"
-    CANCELLED = "CANCELLED"
 
 
 class HistoryEventType(str, enum.Enum):
@@ -71,9 +78,7 @@ class HistoryEventType(str, enum.Enum):
     SUBSCRIPTION_CREATED = "SUBSCRIPTION_CREATED"
     SUBSCRIPTION_RENEWED = "SUBSCRIPTION_RENEWED"
     SUBSCRIPTION_UPGRADED = "SUBSCRIPTION_UPGRADED"
-    SUBSCRIPTION_CANCELLED = "SUBSCRIPTION_CANCELLED"
     SUBSCRIPTION_EXPIRED = "SUBSCRIPTION_EXPIRED"
     ADDON_PURCHASED = "ADDON_PURCHASED"
-    ADDON_CANCELLED = "ADDON_CANCELLED"
     ADDON_EXPIRED = "ADDON_EXPIRED"
     USER_COUNT_ADJUSTED = "USER_COUNT_ADJUSTED"

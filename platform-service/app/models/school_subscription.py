@@ -1,4 +1,4 @@
-"""Subscription model — at most one active subscription per school.
+"""SchoolSubscription model — at most one active subscription per school.
 
 Commercial terms (tenure, max_user_count, pricing) are snapshotted at
 creation time from the plan catalog (ADR-2).  The ``plan_id`` FK is retained
@@ -25,8 +25,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import PlatformBase
-from app.db.mixins import PrimaryKeyMixin, SoftDeleteMixin
+from app.db.base import BaseModel
 from app.models.enums import SubscriptionStatus
 
 if TYPE_CHECKING:
@@ -37,11 +36,14 @@ if TYPE_CHECKING:
     from app.models.tenant import Tenant
 
 
-class Subscription(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
+class SchoolSubscription(BaseModel):
     """A school's active service agreement.
 
     At most **one** active subscription per school is enforced by a
     partial unique index on ``(school_id) WHERE status = 'ACTIVE'``.
+
+    Subscriptions cannot be cancelled midway — they either expire
+    naturally or are superseded by an upgrade.
     """
 
     __tablename__ = "subscriptions"
@@ -163,16 +165,18 @@ class Subscription(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
         DateTime(timezone=True),
         nullable=False,
     )
-    cancelled_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-    )
 
     metadata_: Mapped[dict] = mapped_column(
         "metadata",
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
+        comment=(
+            "Extensible subscription attributes. "
+            "Expected keys: payment_reference (str), purchase_order_number (str), "
+            "sales_rep (str), discount_code (str), onboarding_notes (str). "
+            "Governed by application-layer Pydantic validation."
+        ),
     )
 
     # ── Relationships ────────────────────────────────────────────────────
@@ -202,7 +206,7 @@ class Subscription(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
 
     def __repr__(self) -> str:
         return (
-            f"<Subscription id={self.id!s} school_id={self.school_id!s} "
+            f"<SchoolSubscription id={self.id!s} school_id={self.school_id!s} "
             f"status={self.status.value} users={self.remaining_users}/"
             f"{self.effective_max_users}>"
         )

@@ -82,9 +82,9 @@ async def init_db() -> None:
     Create all tables defined in metadata (development/test use only).
     In production, use Alembic migrations.
     """
-    from .base_all import metadata  # noqa: F401 — ensure all models are imported
-    from .base import Base
+    import app.models  # noqa: F401 — ensure all models are imported
+    from .base import PlatformBase
     async with engine.begin() as conn:
         # Ensure the 'platform' schema exists
         await conn.execute(__import__("sqlalchemy").text("CREATE SCHEMA IF NOT EXISTS platform"))
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(PlatformBase.metadata.create_all)

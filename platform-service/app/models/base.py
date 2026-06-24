@@ -1,5 +1,5 @@
-"""Re-export PlatformBase for model file imports."""
+"""Re-export PlatformBase and BaseModel for model file imports."""
 
-from app.db.base import PlatformBase
+from app.db.base import BaseModel, PlatformBase
 
-__all__ = ["PlatformBase"]
+__all__ = ["PlatformBase", "BaseModel"]

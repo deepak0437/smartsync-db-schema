@@ -22,16 +22,15 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import PlatformBase
-from app.db.mixins import PrimaryKeyMixin, SoftDeleteMixin
+from app.db.base import BaseModel
 from app.models.enums import SchoolStatus
 
 if TYPE_CHECKING:
-    from app.models.subscription import Subscription
+    from app.models.school_subscription import SchoolSubscription
     from app.models.tenant import Tenant
 
 
-class School(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
+class School(BaseModel):
     """Operational and billing unit within a tenant.
 
     Each school has a unique subdomain and at most one active subscription
@@ -100,7 +99,7 @@ class School(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
         nullable=True,
         comment="Indian PIN code. String to preserve leading zeros.",
     )
-    address_line: Mapped[Optional[str]] = mapped_column(
+    address: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
         comment="Full street address / landmark line",
@@ -118,6 +117,12 @@ class School(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
+        comment=(
+            "Extensible school attributes. "
+            "Expected keys: board (str, e.g. 'CBSE'), medium (str, e.g. 'English'), "
+            "affiliation_number (str), udise_code (str). "
+            "Governed by application-layer Pydantic validation."
+        ),
     )
 
     # ── Relationships ────────────────────────────────────────────────────
@@ -126,8 +131,8 @@ class School(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
         back_populates="schools",
         lazy="joined",
     )
-    subscriptions: Mapped[List["Subscription"]] = relationship(
-        "Subscription",
+    subscriptions: Mapped[List["SchoolSubscription"]] = relationship(
+        "SchoolSubscription",
         back_populates="school",
         lazy="selectin",
     )

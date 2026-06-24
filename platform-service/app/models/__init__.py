@@ -1,11 +1,11 @@
-"""SmartSync Platform models — public API.
+"""SmartSync Platform models.
 
 All models and enums are re-exported here for clean imports
 and Alembic metadata discovery.
 
 Usage::
 
-    from app.models import Tenant, School, Plan, Subscription
+    from app.models import Tenant, School, Plan, SchoolSubscription
     from app.models import TenantStatus, SchoolStatus
 """
 
@@ -21,7 +21,7 @@ from app.models.enums import (
 from app.models.expansion_addon import ExpansionAddon
 from app.models.plan import Plan
 from app.models.school import School
-from app.models.subscription import Subscription
+from app.models.school_subscription import SchoolSubscription
 from app.models.subscription_history import SubscriptionHistory
 from app.models.tenant import Tenant
 
@@ -38,7 +38,7 @@ __all__ = [
     "Tenant",
     "School",
     "Plan",
-    "Subscription",
+    "SchoolSubscription",
     "ExpansionAddon",
     "SubscriptionHistory",
 ]

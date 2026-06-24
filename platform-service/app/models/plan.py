@@ -22,12 +22,11 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import PlatformBase
-from app.db.mixins import PrimaryKeyMixin, SoftDeleteMixin
+from app.db.base import BaseModel
 from app.models.enums import PlanType, PlanVariant
 
 
-class Plan(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
+class Plan(BaseModel):
     """Immutable product catalog entry.
 
     Defines a plan tier (CORE / GROWTH), pricing variant (ENTRY / SCALABLE),
@@ -36,12 +35,12 @@ class Plan(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
 
     __tablename__ = "plans"
     __table_args__ = (
-        # ADR-3: deactivated plans cannot be publicly listed
+        # Deactivated plans cannot be publicly listed
         CheckConstraint(
-            "NOT (is_active = FALSE AND is_publicly_listed = TRUE)",
-            name="active_before_listed",
+            "NOT (is_active = FALSE AND is_public = TRUE)",
+            name="active_before_public",
         ),
-        # Tenure boundary: 1–60 months (supports custom pilots and non-standard fiscal years)
+        # Tenure boundary: 1–60 months
         CheckConstraint(
             "tenure_months > 0 AND tenure_months <= 60",
             name="valid_tenure_range",
@@ -51,7 +50,7 @@ class Plan(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
             "price_per_user_per_month > 0",
             name="positive_price",
         ),
-        # Non-empty allowed user counts (ADR-1)
+        # Non-empty allowed user counts
         CheckConstraint(
             "jsonb_array_length(allowed_user_counts) > 0",
             name="non_empty_user_counts",
@@ -113,10 +112,16 @@ class Plan(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
         nullable=False,
         server_default=text("TRUE"),
     )
-    is_publicly_listed: Mapped[bool] = mapped_column(
+    is_public: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         server_default=text("TRUE"),
+        comment=(
+            "Controls public visibility on the pricing page. "
+            "TRUE = visible to all visitors. FALSE = hidden, admin-assignable only "
+            "(e.g. custom enterprise deals, internal pilot plans). "
+            "CHECK constraint prevents is_public=TRUE when is_active=FALSE."
+        ),
     )
     description: Mapped[Optional[str]] = mapped_column(
         Text,
@@ -133,6 +138,13 @@ class Plan(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
+        comment=(
+            "Extensible plan attributes. "
+            "Expected keys: internal_code (str), sales_team (str), "
+            "launch_date (str, ISO 8601), sunset_date (str|null), "
+            "display_order (int), badge (str, e.g. 'most-popular'). "
+            "Governed by application-layer Pydantic validation."
+        ),
     )
 
     def __repr__(self) -> str:

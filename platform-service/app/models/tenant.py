@@ -1,6 +1,8 @@
 """Tenant model — top-level organizational container.
 
-A tenant owns one or more schools and has no billing of its own.
+A tenant represents an education group, trust, or management body
+that owns one or more schools.  The tenant itself has no billing —
+all subscriptions are scoped to individual schools.
 """
 
 from __future__ import annotations
@@ -11,15 +13,14 @@ from sqlalchemy import Enum as SAEnum, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import PlatformBase
-from app.db.mixins import PrimaryKeyMixin, SoftDeleteMixin
+from app.db.base import BaseModel
 from app.models.enums import TenantStatus
 
 if TYPE_CHECKING:
     from app.models.school import School
 
 
-class Tenant(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
+class Tenant(BaseModel):
     """Top-level organizational container.
 
     Owns one or more :class:`School` instances. Carries no billing
@@ -60,6 +61,11 @@ class Tenant(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
+        comment=(
+            "Extensible tenant attributes. "
+            "Expected keys: region (str), board (str), group_code (str), "
+            "notes (str). Governed by application-layer Pydantic validation."
+        ),
     )
 
     # ── Relationships ────────────────────────────────────────────────────

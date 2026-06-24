@@ -32,7 +32,7 @@ from app.models.enums import HistoryEventType
 if TYPE_CHECKING:
     from app.models.expansion_addon import ExpansionAddon
     from app.models.school import School
-    from app.models.subscription import Subscription
+    from app.models.school_subscription import SchoolSubscription
 
 
 class SubscriptionHistory(PrimaryKeyMixin, AuditOnlyMixin, PlatformBase):
@@ -42,9 +42,11 @@ class SubscriptionHistory(PrimaryKeyMixin, AuditOnlyMixin, PlatformBase):
     of the event.  This table intentionally has:
 
     - **No ``updated_at``** — rows are never modified.
-    - **No ``deleted_at``** — rows are never soft-deleted.
-    - **Denormalized ``school_id``** — enables direct school-level queries
-      without joining through subscriptions.
+    - **No ``deleted_at``** — audit records are permanent and cannot be soft-deleted.
+
+    Note: This model inherits directly from ``PrimaryKeyMixin + AuditOnlyMixin
+    + PlatformBase`` instead of ``BaseModel`` because it is append-only and
+    must not include ``SoftDeleteMixin``.
     """
 
     __tablename__ = "subscription_history"
@@ -139,8 +141,8 @@ class SubscriptionHistory(PrimaryKeyMixin, AuditOnlyMixin, PlatformBase):
     )
 
     # ── Relationships ────────────────────────────────────────────────────
-    subscription: Mapped["Subscription"] = relationship(
-        "Subscription",
+    subscription: Mapped["SchoolSubscription"] = relationship(
+        "SchoolSubscription",
         back_populates="history_entries",
         lazy="noload",
     )

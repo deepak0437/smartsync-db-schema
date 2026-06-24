@@ -4,13 +4,15 @@ Tied to the active base subscription's remaining tenure.  The addon's
 ``expires_at`` must be ≤ the parent subscription's ``expires_at`` — this
 invariant is enforced at the service layer since cross-table CHECK
 constraints are not supported in PostgreSQL.
+
+Once purchased, addons cannot be cancelled — they run until expiry.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -25,16 +27,15 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import PlatformBase
-from app.db.mixins import PrimaryKeyMixin, SoftDeleteMixin
+from app.db.base import BaseModel
 from app.models.enums import AddonStatus
 
 if TYPE_CHECKING:
     from app.models.plan import Plan
-    from app.models.subscription import Subscription
+    from app.models.school_subscription import SchoolSubscription
 
 
-class ExpansionAddon(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
+class ExpansionAddon(BaseModel):
     """Mid-term capacity booster attached to an active subscription.
 
     Adds ``additional_user_count`` users to the subscription's
@@ -112,20 +113,22 @@ class ExpansionAddon(PrimaryKeyMixin, SoftDeleteMixin, PlatformBase):
         DateTime(timezone=True),
         nullable=False,
     )
-    cancelled_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-    )
     metadata_: Mapped[dict] = mapped_column(
         "metadata",
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
+        comment=(
+            "Extensible addon attributes. "
+            "Expected keys: payment_reference (str), purchase_order_number (str), "
+            "approval_notes (str). "
+            "Governed by application-layer Pydantic validation."
+        ),
     )
 
     # ── Relationships ────────────────────────────────────────────────────
-    subscription: Mapped["Subscription"] = relationship(
-        "Subscription",
+    subscription: Mapped["SchoolSubscription"] = relationship(
+        "SchoolSubscription",
         back_populates="addons",
         lazy="joined",
     )
