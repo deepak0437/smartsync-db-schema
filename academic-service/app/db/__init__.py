@@ -1,1 +1,0 @@
-# Academic Service DB Package

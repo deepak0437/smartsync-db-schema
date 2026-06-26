@@ -1,1 +1,0 @@
-# Communication Service DB Package

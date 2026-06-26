@@ -16,6 +16,9 @@ In a microservices architecture:
 
 ## 2. Repository Structure
 
+
+
+
 ```
 smartsync-db-schema/
 │
