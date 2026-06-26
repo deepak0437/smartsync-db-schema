@@ -73,7 +73,7 @@ htmlcov/
 logs/
 
 # config file
-.etc
+etc
 etc/config/config.yaml
 
 # Agents
