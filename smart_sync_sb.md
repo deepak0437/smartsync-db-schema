@@ -504,3 +504,183 @@ smartsync-db-schema (single repo)
 # 2 - deleted_at, is_deleted, 
 # 3 - created_by, updated_by, deleted_by
 
+
+Install in backend services:
+Pin to a specific git tag:
+# requirements.txt
+smartsync_db @ git+https://github.com/your-org/smartsync-db-schema.git@v1.1.0
+Or always latest main (not recommended for production):
+smartsync_db @ git+https://github.com/your-org/smartsync-db-schema.git@main
+
+
+
+# Migrations Guide
+# SmartSync Database Migration Guide
+
+This guide details how to manage and run database migrations for the `platform` schema in the `smartsync-db-schema` repository.
+
+## Prerequisites
+
+1. Ensure your PostgreSQL database is running on `localhost:5432` with a database named `smartsync_db`.
+2. Verify that the credentials in [etc/config/config.yaml](file:///Users/deepak_9097/Documents/SmartSync/smartsync-db-schema/etc/config/config.yaml) are correct and match your local PostgreSQL server setup:
+   ```yaml
+   database:
+     host: localhost
+     port: 5432
+     name: smartsync_db
+     username: deepak_9097
+     password: "your_actual_password"
+   ```
+3. Ensure the virtual environment is activated or that you point to it when executing commands.
+
+---
+
+## Migration Commands --------------
+
+All migration commands must be executed from the specific schema folder (e.g. `schemas/platform`) where the corresponding `alembic.ini` file resides.
+
+### 1. Generating a New Migration (Autogenerate)
+
+To automatically detect differences between your SQLAlchemy models and the database schema, and generate a new sequential migration script (e.g., `01_initial_platform_schema.py`, `02_...`):
+
+```bash
+source .venv/bin/activate
+# Navigate to the platform schema directory
+cd schemas/platform
+
+# Run the autogenerate revision command using the virtual environment
+../../.venv/bin/alembic revision --autogenerate -m "initial_platform_schema"
+```
+
+The custom hook in `env.py` will automatically intercept the generation and name the file using a zero-padded serial number sequence starting from `01`.
+
+### 2. Applying Migrations (Upgrade)
+
+To apply all pending migrations up to the latest revision (head):
+
+```bash
+# Navigate to the platform schema directory
+cd schemas/platform
+
+# Run the upgrade command
+../../.venv/bin/alembic upgrade head
+```
+
+*Note: The migration environment will automatically create the `platform` schema (`CREATE SCHEMA IF NOT EXISTS platform`) if it doesn't already exist.*
+
+### 3. Rolling Back Migrations (Downgrade)
+
+To revert the database state by one migration version:
+
+```bash
+# Navigate to the platform schema directory
+cd schemas/platform
+
+# Run the downgrade command
+../../.venv/bin/alembic downgrade -1
+```
+
+To downgrade completely (remove all migrations):
+
+```bash
+../../.venv/bin/alembic downgrade base
+```
+
+### 4. Viewing Migration History
+
+To check the chronological list of migrations and status:
+
+```bash
+# Navigate to the platform schema directory
+cd schemas/platform
+
+# View history
+../../.venv/bin/alembic history --verbose
+```
+
+source .venv/bin/activate
+bump2version patch
+
+
+# version managemnted 
+# Version Management — smartsync-db-schema
+
+## When to Bump What
+
+| Scenario | Command |
+|---|---|
+| Add new table | `bump2version patch` |
+| Add nullable column | `bump2version patch` |
+| Add new mixin | `bump2version minor` |
+| Add non-null column | `bump2version minor` |
+| Rename / drop column | `bump2version major` |
+| Breaking model change | `bump2version major` |
+
+---
+
+## Workflow — Every Time You Change a Model
+
+### Step 1 — Make your model change
+```python
+# models/platform/tenant.py
+phone_number: Mapped[str] = mapped_column(String(20), nullable=True)  # added
+```
+
+### Step 2 — Generate migration
+```bash
+cd schemas/platform
+alembic revision --autogenerate -m "add_phone_number_to_tenants"
+alembic upgrade head
+```
+
+### Step 3 — Bump version
+```bash
+cd ../..   # back to repo root
+bump2version patch   # or minor or major
+```
+
+This automatically:
+- Updates `version` in `pyproject.toml`
+- Creates a git commit
+- Creates a git tag (e.g. `v1.0.1`)
+
+### Step 4 — Push with tags
+```bash
+git push origin main --tags
+```
+
+### Step 5 — Update in affected backend services
+```
+# requirements.txt of affected service
+smartsync_db @ git+https://github.com/your-org/smartsync-db-schema.git@v1.0.1
+```
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## Full Example
+
+```
+model change (add nullable column)
+        ↓
+alembic revision --autogenerate -m "add_phone_number"
+alembic upgrade head
+        ↓
+bump2version patch        # 1.0.0 → 1.0.1
+        ↓
+git push origin main --tags
+        ↓
+affected services update @v1.0.1 in requirements.txt
+```
+
+---
+
+## Rules
+
+- Always run migration **before** bumping version
+- Always push with `--tags` — services install via git tag
+- Never bump version without a model or migration change
+- Services not using the changed model **do not need to upgrade**

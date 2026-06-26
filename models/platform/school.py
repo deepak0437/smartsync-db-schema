@@ -18,10 +18,9 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from base import Base
+from base import Base, SoftDeleteMixin, AuditMixin
 from .enums import SchoolStatus, BoardType
 
 if TYPE_CHECKING:
@@ -29,7 +28,7 @@ if TYPE_CHECKING:
     from .tenant import Tenant
 
 
-class School(Base):
+class School(SoftDeleteMixin, AuditMixin, Base):
     """Operational and billing unit within a tenant.
 
     Each school has a unique subdomain and at most one active subscription

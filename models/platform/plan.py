@@ -20,11 +20,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from base import Base
+from base import Base, SoftDeleteMixin, AuditMixin
 from .enums import PlanType, PlanVariant, TenureMonths, StorageLimit, UserCount
 
 
-class Plan(Base):
+class Plan(SoftDeleteMixin, AuditMixin, Base):
     """Immutable product catalog entry.
 
     Defines a plan tier (CORE / GROWTH), pricing variant (ENTRY / SCALABLE),

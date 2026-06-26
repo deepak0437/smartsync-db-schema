@@ -1,18 +1,18 @@
 [build-system]
 requires = ["setuptools>=61.0"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "smartsync-db-schema"
+name = "smartsync_db"
 version = "1.0.0"
 description = "Shared SQLAlchemy models for SmartSync microservices"
 requires-python = ">=3.11"
 dependencies = [
     "sqlalchemy>=2.0",
     "asyncpg>=0.29",
-    "pyyaml"
+    "pyyaml>=6.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["models*", "base*", "db*"]
+include = ["models*", "base*"]

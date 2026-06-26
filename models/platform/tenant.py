@@ -12,14 +12,14 @@ from typing import TYPE_CHECKING, List
 from sqlalchemy import Enum as SAEnum, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from base import Base
+from base import Base, SoftDeleteMixin, AuditMixin
 from .enums import TenantStatus
 
 if TYPE_CHECKING:
     from .school import School
 
 
-class Tenant(Base):
+class Tenant(SoftDeleteMixin, AuditMixin, Base):
     """Top-level organizational container.
 
     Owns one or more :class:`School` instances. Carries no billing

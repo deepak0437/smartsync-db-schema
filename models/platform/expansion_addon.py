@@ -22,12 +22,12 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from base import Base
+from base import Base, SoftDeleteMixin, AuditMixin
 from .enums import ExpansionType, CapacityExpansionPack, TenureMonths, UserCount
 
 
 
-class ExpansionAddon(Base):
+class ExpansionAddon(SoftDeleteMixin, AuditMixin, Base):
     """Mid-term capacity booster attached to an active subscription.
 
     Adds ``user_count`` users to the subscription's
