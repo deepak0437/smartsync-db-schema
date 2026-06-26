@@ -79,11 +79,13 @@ class ExpansionAddon(Base):
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
-    subscription_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("subscriptions.id"),
+    # create a code column for plan to be used in the future for multi-tenant support(string of 100 characters)
+    # expansion_type, expansion_pack, tenure, user_count, discount, discount_percentage, is_active
+    subscription_id: Mapped[uuid.UUID] = mapped_column( # not required 
+        ForeignKey("subscriptions.id"), 
         nullable=False,
     )
-    plan_id: Mapped[uuid.UUID] = mapped_column(
+    plan_id: Mapped[uuid.UUID] = mapped_column(  # not required 
         ForeignKey("plans.id"),
         nullable=False,
     )

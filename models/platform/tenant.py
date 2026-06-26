@@ -13,7 +13,6 @@ from sqlalchemy import Enum as SAEnum, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-
 from base import Base
 from enums import TenantStatus
 
@@ -39,13 +38,14 @@ class Tenant(Base):
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
+    # create a code column for tenant to be used in the future for multi-tenant support(string of 100 characters)
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
     slug: Mapped[str] = mapped_column(
         String(100),
-        nullable=False,
+        nullable=False, # it will be optinal 
     )
     status: Mapped[TenantStatus] = mapped_column(
         SAEnum(
