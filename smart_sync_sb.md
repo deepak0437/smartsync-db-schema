@@ -493,3 +493,11 @@ smartsync-db-schema (single repo)
 | Can service A write to service B's schema via ORM? | Never — call service B's API |
 | ORM or SQL? | ORM for CRUD, Raw SQL for complex joins/reports |
 | How is tenant data isolated? | `tenant_id` on every table + PostgreSQL RLS |
+
+
+#  etc/config -> config.yaml - db creds 
+
+# 1 - created_at, updated_at, id
+# 2 - deleted_at, is_deleted, 
+# 3 - created_by, updated_by, deleted_by
+
