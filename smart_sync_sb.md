@@ -505,3 +505,7 @@ smartsync-db-schema (single repo)
 
 
 # 
+# 1 - created_at, updated_at, id
+# 2 - deleted_at, is_deleted, 
+# 3 - created_by, updated_by, deleted_by
+
