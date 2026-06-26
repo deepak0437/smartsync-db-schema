@@ -11,7 +11,6 @@ import uuid
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
-    CheckConstraint,
     Enum as SAEnum,
     ForeignKey,
     Index,
@@ -23,11 +22,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from base import Base
-from enums import SchoolStatus
+from .enums import SchoolStatus, BoardType
 
 if TYPE_CHECKING:
-    from school_subscription import SchoolSubscription
-    from tenant import Tenant
+    from .school_subscription import SchoolSubscription
+    from .tenant import Tenant
 
 
 class School(Base):
@@ -39,13 +38,15 @@ class School(Base):
 
     __tablename__ = "schools"
     __table_args__ = (
-        CheckConstraint(
-            r"subdomain ~ '^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$'",
-            name="valid_subdomain",
-        ),
         Index(
             "uq_schools_subdomain_active",
             "subdomain",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        Index(
+            "uq_schools_code_active",
+            "code",
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
@@ -67,16 +68,39 @@ class School(Base):
         ForeignKey("tenants.id"),
         nullable=False,
     )
-    #code for school also 
-    # create a board column - and map it to enum BoardType 
+
+    code: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="Unique school code for multi-tenant support"
+    )
+
+    board: Mapped[BoardType] = mapped_column(
+        SAEnum(
+            BoardType,
+            name="board_type",
+            schema="platform",
+            create_type=False,
+        ),
+        nullable=False,
+        server_default=BoardType.CBSE.value,
+    )
+
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
+
+    slug: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
     subdomain: Mapped[str] = mapped_column(
         String(63),
         nullable=False,
     )
+
     status: Mapped[SchoolStatus] = mapped_column(
         SAEnum(
             SchoolStatus,
@@ -87,44 +111,43 @@ class School(Base):
         nullable=False,
         server_default=SchoolStatus.PENDING.value,
     )
+
     state: Mapped[Optional[str]] = mapped_column(
         String(100),
         nullable=True,
         comment="Indian state name or code, e.g. 'Karnataka' or 'KA'",
     )
+
     city: Mapped[Optional[str]] = mapped_column(
         String(100),
         nullable=True,
     )
+
     pincode: Mapped[Optional[str]] = mapped_column(
         String(10),
         nullable=True,
         comment="Indian PIN code. String to preserve leading zeros.",
     )
+
     address: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
         comment="Full street address / landmark line",
     )
-    email: Mapped[Optional[str]] = mapped_column(
+
+    email: Mapped[str] = mapped_column(
         String(255),
-        nullable=True, #false
-    )
-    phone_number: Mapped[Optional[str]] = mapped_column(
-        String(20),
-        nullable=True, #false
-    )
-    metadata_: Mapped[dict] = mapped_column(
-        "metadata",
-        JSONB,
         nullable=False,
-        server_default=text("'{}'::jsonb"),
-        comment=(
-            "Extensible school attributes. "
-            "Expected keys: board (str, e.g. 'CBSE'), medium (str, e.g. 'English'), "
-            "affiliation_number (str), udise_code (str). "
-            "Governed by application-layer Pydantic validation."
-        ),
+    )
+
+    phone_number: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+    )
+    
+    description: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
     )
 
     # ── Relationships ────────────────────────────────────────────────────
@@ -144,3 +167,4 @@ class School(Base):
             f"<School id={self.id!s} subdomain={self.subdomain!r} "
             f"status={self.status.value}>"
         )
+

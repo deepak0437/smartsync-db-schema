@@ -6,18 +6,17 @@ all subscriptions are scoped to individual schools.
 """
 
 from __future__ import annotations
-
+from typing import Optional
 from typing import TYPE_CHECKING, List
 
 from sqlalchemy import Enum as SAEnum, Index, String, text
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from base import Base
-from enums import TenantStatus
+from .enums import TenantStatus
 
 if TYPE_CHECKING:
-    from school import School
+    from .school import School
 
 
 class Tenant(Base):
@@ -35,18 +34,31 @@ class Tenant(Base):
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
+        Index(
+            "uq_tenants_code_active",
+            "code",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
-    # create a code column for tenant to be used in the future for multi-tenant support(string of 100 characters)
+    code: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="Unique tenant code for multi-tenant support"
+    )
+
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
-    slug: Mapped[str] = mapped_column(
+
+    slug: Mapped[Optional[str]] = mapped_column(
         String(100),
-        nullable=False, # it will be optinal 
+        nullable=True,
     )
+    
     status: Mapped[TenantStatus] = mapped_column(
         SAEnum(
             TenantStatus,
@@ -57,16 +69,10 @@ class Tenant(Base):
         nullable=False,
         server_default=TenantStatus.ACTIVE.value,
     )
-    metadata_: Mapped[dict] = mapped_column(
-        "metadata",
-        JSONB,
-        nullable=False,
-        server_default=text("'{}'::jsonb"),
-        comment=(
-            "Extensible tenant attributes. "
-            "Expected keys: region (str), board (str), group_code (str), "
-            "notes (str). Governed by application-layer Pydantic validation."
-        ),
+
+    description: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
     )
 
     # ── Relationships ────────────────────────────────────────────────────
@@ -78,3 +84,4 @@ class Tenant(Base):
 
     def __repr__(self) -> str:
         return f"<Tenant id={self.id!s} slug={self.slug!r} status={self.status.value}>"
+

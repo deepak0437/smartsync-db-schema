@@ -6,6 +6,7 @@ and new plans are created.  This preserves historical pricing fidelity.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
@@ -14,51 +15,50 @@ from sqlalchemy import (
     Enum as SAEnum,
     Index,
     Numeric,
-    SmallInteger,
     String,
-    Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from base import Base
-from enums import PlanType, PlanVariant
+from .enums import PlanType, PlanVariant, TenureMonths, StorageLimit, UserCount
 
 
 class Plan(Base):
     """Immutable product catalog entry.
 
     Defines a plan tier (CORE / GROWTH), pricing variant (ENTRY / SCALABLE),
-    allowed user counts, tenure, and per-user pricing.
+    user counts, tenure, and pricing.
     """
 
     __tablename__ = "plans"
     __table_args__ = (
-        # Deactivated plans cannot be publicly listed
-        CheckConstraint(
-            "NOT (is_active = FALSE AND is_public = TRUE)",
-            name="active_before_public",
-        ),
         # Tenure boundary: 1–60 months
         CheckConstraint(
-            "tenure_months > 0 AND tenure_months <= 60",
+            "tenure > 0 AND tenure <= 60",
             name="valid_tenure_range",
         ),
         # Positive pricing
         CheckConstraint(
-            "price_per_user_per_month > 0",
+            "price > 0",
             name="positive_price",
         ),
-        # Non-empty allowed user counts
+        # Positive user count
         CheckConstraint(
-            "jsonb_array_length(allowed_user_counts) > 0",
-            name="non_empty_user_counts",
+            "user_count > 0",
+            name="positive_user_count",
         ),
         # Unique plan name among live plans
         Index(
             "uq_plans_name_active",
             "name",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        # Unique plan code among live plans
+        Index(
+            "uq_plans_code_active",
+            "code",
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
@@ -72,12 +72,13 @@ class Plan(Base):
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
-    # create a code column for plan to be used in the future for multi-tenant support(string of 100 characters)
-    name: Mapped[str] = mapped_column( # name is not required
-        String(255),
+    code: Mapped[str] = mapped_column(
+        String(100),
         nullable=False,
+        comment="Unique plan code for multi-tenant support"
     )
-    plan_type: Mapped[PlanType] = mapped_column(
+
+    type: Mapped[PlanType] = mapped_column(
         SAEnum(
             PlanType,
             name="plan_type",
@@ -86,7 +87,8 @@ class Plan(Base):
         ),
         nullable=False,
     )
-    plan_variant: Mapped[PlanVariant] = mapped_column(
+
+    variant: Mapped[PlanVariant] = mapped_column(
         SAEnum(
             PlanVariant,
             name="plan_variant",
@@ -95,70 +97,71 @@ class Plan(Base):
         ),
         nullable=False,
     )
-    allowed_user_counts: Mapped[list] = mapped_column( # user counts should be a integers, change the datattype
-        JSONB,
+    
+    user_count: Mapped[UserCount] = mapped_column(
+        SAEnum(
+            UserCount,
+            name="plan_user_count",
+            schema="platform",
+            create_type=False,
+        ),
         nullable=False,
-        comment="Sorted array of valid max_user_count values, e.g. [25, 50, 100]",
+        comment="Allowed user count for the plan"
     )
-    tenure_months: Mapped[int] = mapped_column( # tenure column onlt not tenure_months
-        SmallInteger,
+
+    tenure: Mapped[TenureMonths] = mapped_column(
+        SAEnum(
+            TenureMonths,
+            name="plan_tenure",
+            schema="platform",
+            create_type=False,
+        ),
         nullable=False,
+        comment="Tenure duration in months"
     )
-    price_per_user_per_month: Mapped[float] = mapped_column( # price or mrp - column name
+
+    price: Mapped[Decimal] = mapped_column(
         Numeric(10, 2),
         nullable=False,
+        comment="Pricing or MRP per user per month"
     )
+
+    discount_price: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
+        comment="Discounted price per user per month"
+    )
+
+    discount_percentage: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(5, 2),
+        nullable=True,
+        comment="Discount percentage"
+    )
+
+    storage: Mapped[StorageLimit] = mapped_column(
+        SAEnum(
+            StorageLimit,
+            name="storage_limit",
+            schema="platform",
+            create_type=False,
+        ),
+        nullable=False,
+        comment="Storage limit in GB"
+    )
+    
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         server_default=text("TRUE"),
     )
-    is_public: Mapped[bool] = mapped_column( # remove that
-        Boolean,
-        nullable=False,
-        server_default=text("TRUE"),
-        comment=(
-            "Controls public visibility on the pricing page. "
-            "TRUE = visible to all visitors. FALSE = hidden, admin-assignable only "
-            "(e.g. custom enterprise deals, internal pilot plans). "
-            "CHECK constraint prevents is_public=TRUE when is_active=FALSE."
-        ),
-    )
-    description: Mapped[Optional[str]] = mapped_column( # Str 500 characters
-        Text,
+    description: Mapped[Optional[str]] = mapped_column(
+        String(500),
         nullable=True,
     )
-    features: Mapped[list] = mapped_column( # remove it
-        JSONB,
-        nullable=False,
-        server_default=text("'[]'::jsonb"),
-        comment="Feature flag list, e.g. ['attendance', 'gradebook', 'transport']",
-    )
-    metadata_: Mapped[dict] = mapped_column(
-        "metadata",
-        JSONB,
-        nullable=False,
-        server_default=text("'{}'::jsonb"),
-        comment=(
-            "Extensible plan attributes. "
-            "Expected keys: internal_code (str), sales_team (str), "
-            "launch_date (str, ISO 8601), sunset_date (str|null), "
-            "display_order (int), badge (str, e.g. 'most-popular'). "
-            "Governed by application-layer Pydantic validation."
-        ),
-    )
-    # discounts price and discount percentage can be added for the plan model -  need to create
-    # storgae - create a new column
+
     def __repr__(self) -> str:
         return (
-            f"<Plan id={self.id!s} name={self.name!r} "
+            f"<Plan id={self.id!s} code={self.code!r} "
             f"type={self.plan_type.value} variant={self.plan_variant.value}>"
         )
 
-
-#. A1 core Entery 500 12 6000 .... 200000mb
-#. A2 core GROWTH 1500 6 9000 ....
-#. A3 core GROWTH 2500 24 60000 ....
-
-
-# 10rs per user (500*12= 6000) 10rs per user per month

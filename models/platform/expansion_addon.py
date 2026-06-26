@@ -8,37 +8,29 @@ constraints are not supported in PostgreSQL.
 Once purchased, addons cannot be cancelled — they run until expiry.
 """
 
-from __future__ import annotations
-
-import uuid
-from datetime import datetime
-from typing import TYPE_CHECKING
+from decimal import Decimal
+from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
-    DateTime,
     Enum as SAEnum,
-    ForeignKey,
     Index,
-    Integer,
     Numeric,
+    String,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from base import Base
-from enums import AddonStatus
+from .enums import ExpansionType, CapacityExpansionPack, TenureMonths, UserCount
 
-if TYPE_CHECKING:
-    from plan import Plan
-    from school_subscription import SchoolSubscription
 
 
 class ExpansionAddon(Base):
     """Mid-term capacity booster attached to an active subscription.
 
-    Adds ``additional_user_count`` users to the subscription's
+    Adds ``user_count`` users to the subscription's
     ``effective_max_users`` for the remaining tenure.
     """
 
@@ -46,101 +38,97 @@ class ExpansionAddon(Base):
     __table_args__ = (
         # ── CHECK constraints ────────────────────────────────────────────
         CheckConstraint(
-            "additional_user_count > 0",
+            "user_count > 0",
             name="positive_addon_users",
         ),
         CheckConstraint(
-            "price_per_user_per_month > 0",
+            "price > 0",
             name="positive_addon_price",
-        ),
-        CheckConstraint(
-            "expires_at > starts_at",
-            name="addon_expiry_after_start",
         ),
         # ── Indexes ──────────────────────────────────────────────────────
         Index(
-            "ix_addons_subscription_active",
-            "subscription_id",
-            postgresql_where=text("status = 'ACTIVE' AND deleted_at IS NULL"),
-        ),
-        Index(
-            "ix_addons_expires_at_active",
-            "expires_at",
-            postgresql_where=text("status = 'ACTIVE'"),
-        ),
-        # Prevent duplicate active addons of the same plan on the same subscription
-        Index(
-            "uq_addons_subscription_plan_active",
-            "subscription_id",
-            "plan_id",
+            "uq_addons_code_active",
+            "code",
             unique=True,
-            postgresql_where=text("status = 'ACTIVE' AND deleted_at IS NULL"),
+            postgresql_where=text("deleted_at IS NULL"),
         ),
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
-    # create a code column for plan to be used in the future for multi-tenant support(string of 100 characters)
-    # expansion_type, expansion_pack, tenure, user_count, discount, discount_percentage, is_active
-    subscription_id: Mapped[uuid.UUID] = mapped_column( # not required 
-        ForeignKey("subscriptions.id"), 
+    code: Mapped[str] = mapped_column(
+        String(100),
         nullable=False,
+        comment="Unique addon code for multi-tenant support"
     )
-    plan_id: Mapped[uuid.UUID] = mapped_column(  # not required 
-        ForeignKey("plans.id"),
-        nullable=False,
-    )
-    status: Mapped[AddonStatus] = mapped_column(
+
+    expansion_type: Mapped[ExpansionType] = mapped_column(
         SAEnum(
-            AddonStatus,
-            name="addon_status",
+            ExpansionType,
+            name="expansion_type",
             schema="platform",
             create_type=False,
         ),
         nullable=False,
-        server_default=AddonStatus.ACTIVE.value,
     )
-    additional_user_count: Mapped[int] = mapped_column(
-        Integer,
+
+    expansion_pack: Mapped[CapacityExpansionPack] = mapped_column(
+        SAEnum(
+            CapacityExpansionPack,
+            name="capacity_expansion_pack",
+            schema="platform",
+            create_type=False,
+        ),
         nullable=False,
     )
-    price_per_user_per_month: Mapped[float] = mapped_column(
+
+    tenure: Mapped[TenureMonths] = mapped_column(
+        SAEnum(
+            TenureMonths,
+            name="addon_tenure",
+            schema="platform",
+            create_type=False,
+        ),
+        nullable=False,
+    )
+
+    user_count: Mapped[UserCount] = mapped_column(
+        SAEnum(
+            UserCount,
+            name="addon_user_count",
+            schema="platform",
+            create_type=False,
+        ),
+        nullable=False,
+    )
+
+    price: Mapped[Decimal] = mapped_column(
         Numeric(10, 2),
         nullable=False,
     )
-    starts_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-    )
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-    )
-    metadata_: Mapped[dict] = mapped_column(
-        "metadata",
-        JSONB,
-        nullable=False,
-        server_default=text("'{}'::jsonb"),
-        comment=(
-            "Extensible addon attributes. "
-            "Expected keys: payment_reference (str), purchase_order_number (str), "
-            "approval_notes (str). "
-            "Governed by application-layer Pydantic validation."
-        ),
+
+    discount: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
     )
 
-    # ── Relationships ────────────────────────────────────────────────────
-    subscription: Mapped["SchoolSubscription"] = relationship(
-        "SchoolSubscription",
-        back_populates="addons",
-        lazy="joined",
+    discount_percentage: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(5, 2),
+        nullable=True,
     )
-    plan: Mapped["Plan"] = relationship(
-        "Plan",
-        lazy="joined",
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("TRUE"),
+    )
+    
+    description: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
     )
 
     def __repr__(self) -> str:
         return (
-            f"<ExpansionAddon id={self.id!s} subscription={self.subscription_id!s} "
-            f"+{self.additional_user_count} users status={self.status.value}>"
+            f"<ExpansionAddon id={self.id!s} code={self.code!r} status={self.status.value}>"
         )
+

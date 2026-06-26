@@ -1,0 +1,4 @@
+sqlalchemy>=2.0
+asyncpg>=0.29
+pyyaml
+alembic>=1.11.0

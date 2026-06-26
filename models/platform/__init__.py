@@ -9,21 +9,23 @@ Usage::
     from app.models import TenantStatus, SchoolStatus
 """
 
-from app.models.enums import (
+from .enums import (
     AddonStatus,
+    BoardType,
     HistoryEventType,
     PlanType,
     PlanVariant,
     SchoolStatus,
+    StorageLimit,
     SubscriptionStatus,
     TenantStatus,
+    UserCount,
 )
-from app.models.expansion_addon import ExpansionAddon
-from app.models.plan import Plan
-from app.models.school import School
-from app.models.school_subscription import SchoolSubscription
-from app.models.subscription_history import SubscriptionHistory
-from app.models.tenant import Tenant
+from .expansion_addon import ExpansionAddon
+from .plan import Plan
+from .school import School
+from .school_subscription import SchoolSubscription
+from .tenant import Tenant
 
 __all__ = [
     # Enums
@@ -34,11 +36,12 @@ __all__ = [
     "SubscriptionStatus",
     "AddonStatus",
     "HistoryEventType",
-    # Models
+    "BoardType",
+    "StorageLimit",
     "Tenant",
     "School",
     "Plan",
     "SchoolSubscription",
     "ExpansionAddon",
-    "SubscriptionHistory",
+    "UserCount"
 ]

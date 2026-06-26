@@ -1,15 +1,8 @@
-"""SchoolSubscription model — at most one active subscription per school.
-
-Commercial terms (tenure, max_user_count, pricing) are snapshotted at
-creation time from the plan catalog (ADR-2).  The ``plan_id`` FK is retained
-for traceability but is never re-read for mutable plan fields at runtime.
-"""
-
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     CheckConstraint,
@@ -18,22 +11,20 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
-    SmallInteger,
+    String,
+    Boolean,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from base import Base
-from enums import SubscriptionStatus
+from .enums import SubscriptionStatus
 
 if TYPE_CHECKING:
-    from expansion_addon import ExpansionAddon
-    from plan import Plan
-    from school import School
-    from subscription_history import SubscriptionHistory
-    from tenant import Tenant
+    from .expansion_addon import ExpansionAddon
+    from .plan import Plan
+    from .school import School
+    from .tenant import Tenant
 
 
 class SchoolSubscription(Base):
@@ -46,32 +37,12 @@ class SchoolSubscription(Base):
     naturally or are superseded by an upgrade.
     """
 
-    __tablename__ = "subscriptions"
+    __tablename__ = "school_subscription"
     __table_args__ = (
         # ── CHECK constraints ────────────────────────────────────────────
         CheckConstraint(
-            "tenure_months > 0",
-            name="positive_tenure",
-        ),
-        CheckConstraint(
-            "max_user_count > 0",
-            name="positive_max_users",
-        ),
-        CheckConstraint(
-            "price_per_user_per_month > 0",
-            name="positive_price",
-        ),
-        CheckConstraint(
-            "effective_max_users >= max_user_count",
-            name="effective_gte_base",
-        ),
-        CheckConstraint(
             "remaining_users >= 0",
             name="remaining_non_negative",
-        ),
-        CheckConstraint(
-            "remaining_users <= effective_max_users",
-            name="remaining_lte_effective",
         ),
         CheckConstraint(
             "expires_at > starts_at",
@@ -109,15 +80,24 @@ class SchoolSubscription(Base):
         ForeignKey("schools.id"),
         nullable=False,
     )
+
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id"),
         nullable=False,
         comment="Denormalized from school.tenant_id for tenant-scoped queries and future sharding",
     )
+
     plan_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("plans.id"),
         nullable=False,
     )
+
+    addon_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("expansion_addons.id"),
+        nullable=True,
+        comment="Addon plan ID - null by default"
+    )
+
     status: Mapped[SubscriptionStatus] = mapped_column(
         SAEnum(
             SubscriptionStatus,
@@ -129,55 +109,26 @@ class SchoolSubscription(Base):
         server_default=SubscriptionStatus.ACTIVE.value,
     )
 
-    # ── Snapshotted commercial terms (ADR-2) ─────────────────────────────
-    tenure_months: Mapped[int] = mapped_column(
-        SmallInteger,
-        nullable=False,
-    )
-    max_user_count: Mapped[int] = mapped_column( # we can count from plan table using join
-        Integer,
-        nullable=False,
-        comment="Base user count from plan at subscription time",
-    )
-    price_per_user_per_month: Mapped[float] = mapped_column( #not required - we can get from plan table using join
-        Numeric(10, 2),
-        nullable=False,
-    )
-
-    # ── Live capacity counters ───────────────────────────────────────────
-    effective_max_users: Mapped[int] = mapped_column( # not required - we can get from plan table using join
-        Integer,
-        nullable=False,
-        comment="max_user_count + sum(active addon additional_user_count)",
-    )
     remaining_users: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         comment="effective_max_users - current_assigned_user_count",
     )
-    # add addon _paln column - active or inactive
-    # add on plan id - null by default
-    # ── Temporal ─────────────────────────────────────────────────────────
+
     starts_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
     )
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+
+    expires: Mapped[bool] = mapped_column(
+        Boolean,
         nullable=False,
+        default=False,
     )
 
-    metadata_: Mapped[dict] = mapped_column(
-        "metadata",
-        JSONB,
-        nullable=False,
-        server_default=text("'{}'::jsonb"),
-        comment=(
-            "Extensible subscription attributes. "
-            "Expected keys: payment_reference (str), purchase_order_number (str), "
-            "sales_rep (str), discount_code (str), onboarding_notes (str). "
-            "Governed by application-layer Pydantic validation."
-        ),
+    description: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
     )
 
     # ── Relationships ────────────────────────────────────────────────────
@@ -190,15 +141,10 @@ class SchoolSubscription(Base):
         "Plan",
         lazy="joined",
     )
-    addons: Mapped[List["ExpansionAddon"]] = relationship(
+    addon: Mapped[Optional["ExpansionAddon"]] = relationship(
         "ExpansionAddon",
-        back_populates="subscription",
+        foreign_keys=[addon_id],
         lazy="selectin",
-    )
-    history_entries: Mapped[List["SubscriptionHistory"]] = relationship(
-        "SubscriptionHistory",
-        back_populates="subscription",
-        lazy="noload",
     )
     tenant: Mapped["Tenant"] = relationship(
         "Tenant",
@@ -211,3 +157,4 @@ class SchoolSubscription(Base):
             f"status={self.status.value} users={self.remaining_users}/"
             f"{self.effective_max_users}>"
         )
+

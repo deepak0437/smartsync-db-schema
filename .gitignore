@@ -71,3 +71,10 @@ htmlcov/
 # Logs
 *.log
 logs/
+
+# config file
+.etc
+
+# Agents
+.agents
+etc/config/config.yaml
