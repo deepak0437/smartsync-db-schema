@@ -134,18 +134,18 @@ class SchoolSubscription(BaseModel):
         SmallInteger,
         nullable=False,
     )
-    max_user_count: Mapped[int] = mapped_column(
+    max_user_count: Mapped[int] = mapped_column( # we can count from plan table using join
         Integer,
         nullable=False,
         comment="Base user count from plan at subscription time",
     )
-    price_per_user_per_month: Mapped[float] = mapped_column(
+    price_per_user_per_month: Mapped[float] = mapped_column( #not required - we can get from plan table using join
         Numeric(10, 2),
         nullable=False,
     )
 
     # ── Live capacity counters ───────────────────────────────────────────
-    effective_max_users: Mapped[int] = mapped_column(
+    effective_max_users: Mapped[int] = mapped_column( # not required - we can get from plan table using join
         Integer,
         nullable=False,
         comment="max_user_count + sum(active addon additional_user_count)",
@@ -155,7 +155,8 @@ class SchoolSubscription(BaseModel):
         nullable=False,
         comment="effective_max_users - current_assigned_user_count",
     )
-
+    # add addon _paln column - active or inactive
+    # add on plan id - null by default
     # ── Temporal ─────────────────────────────────────────────────────────
     starts_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

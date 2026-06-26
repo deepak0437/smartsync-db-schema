@@ -72,7 +72,8 @@ class Plan(BaseModel):
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
-    name: Mapped[str] = mapped_column(
+    # create a code column for plan to be used in the future for multi-tenant support(string of 100 characters)
+    name: Mapped[str] = mapped_column( # name is not required
         String(255),
         nullable=False,
     )
@@ -94,16 +95,16 @@ class Plan(BaseModel):
         ),
         nullable=False,
     )
-    allowed_user_counts: Mapped[list] = mapped_column(
+    allowed_user_counts: Mapped[list] = mapped_column( # user counts should be a integers, change the datattype
         JSONB,
         nullable=False,
         comment="Sorted array of valid max_user_count values, e.g. [25, 50, 100]",
     )
-    tenure_months: Mapped[int] = mapped_column(
+    tenure_months: Mapped[int] = mapped_column( # tenure column onlt not tenure_months
         SmallInteger,
         nullable=False,
     )
-    price_per_user_per_month: Mapped[float] = mapped_column(
+    price_per_user_per_month: Mapped[float] = mapped_column( # price or mrp - column name
         Numeric(10, 2),
         nullable=False,
     )
@@ -112,7 +113,7 @@ class Plan(BaseModel):
         nullable=False,
         server_default=text("TRUE"),
     )
-    is_public: Mapped[bool] = mapped_column(
+    is_public: Mapped[bool] = mapped_column( # remove that
         Boolean,
         nullable=False,
         server_default=text("TRUE"),
@@ -123,11 +124,11 @@ class Plan(BaseModel):
             "CHECK constraint prevents is_public=TRUE when is_active=FALSE."
         ),
     )
-    description: Mapped[Optional[str]] = mapped_column(
+    description: Mapped[Optional[str]] = mapped_column( # Str 500 characters
         Text,
         nullable=True,
     )
-    features: Mapped[list] = mapped_column(
+    features: Mapped[list] = mapped_column( # remove it
         JSONB,
         nullable=False,
         server_default=text("'[]'::jsonb"),
@@ -146,9 +147,18 @@ class Plan(BaseModel):
             "Governed by application-layer Pydantic validation."
         ),
     )
-
+    # discounts price and discount percentage can be added for the plan model -  need to create
+    # storgae - create a new column
     def __repr__(self) -> str:
         return (
             f"<Plan id={self.id!s} name={self.name!r} "
             f"type={self.plan_type.value} variant={self.plan_variant.value}>"
         )
+
+
+#. A1 core Entery 500 12 6000 .... 200000mb
+#. A2 core GROWTH 1500 6 9000 ....
+#. A3 core GROWTH 2500 24 60000 ....
+
+
+# 10rs per user (500*12= 6000) 10rs per user per month

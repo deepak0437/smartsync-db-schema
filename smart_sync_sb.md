@@ -497,7 +497,11 @@ smartsync-db-schema (single repo)
 
 #  etc/config -> config.yaml - db creds 
 
-# 1 - created_at, updated_at, id
+# 1 - created_at (timestamp, BIGINT - epoch), updated_at, id(uuid)
 # 2 - deleted_at, is_deleted, 
 # 3 - created_by, updated_by, deleted_by
 
+
+
+
+# 

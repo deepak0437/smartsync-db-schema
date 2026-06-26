@@ -38,13 +38,14 @@ class Tenant(BaseModel):
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
+    # create a code column for tenant to be used in the future for multi-tenant support(string of 100 characters)
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
     slug: Mapped[str] = mapped_column(
         String(100),
-        nullable=False,
+        nullable=False, # it will be optinal 
     )
     status: Mapped[TenantStatus] = mapped_column(
         SAEnum(

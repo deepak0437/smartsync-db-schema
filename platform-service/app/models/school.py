@@ -67,6 +67,8 @@ class School(BaseModel):
         ForeignKey("tenants.id"),
         nullable=False,
     )
+    #code for school also 
+    # create a board column - and map it to enum BoardType 
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
@@ -106,11 +108,11 @@ class School(BaseModel):
     )
     email: Mapped[Optional[str]] = mapped_column(
         String(255),
-        nullable=True,
+        nullable=True, #false
     )
     phone_number: Mapped[Optional[str]] = mapped_column(
         String(20),
-        nullable=True,
+        nullable=True, #false
     )
     metadata_: Mapped[dict] = mapped_column(
         "metadata",
