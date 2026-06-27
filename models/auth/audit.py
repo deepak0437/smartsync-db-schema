@@ -20,7 +20,7 @@ class APIKey(SoftDeleteMixin, AuditMixin, Base):
     __table_args__ = {"comment": "Service-to-service and integration API keys"}
 
     # Foreign Keys
-    tenant_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), nullable=False, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
 
     # Key Information
     key_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="Human-readable key name")
@@ -64,7 +64,7 @@ class IPWhitelist(SoftDeleteMixin, AuditMixin, Base):
     __table_args__ = {"comment": "IP whitelist for tenant access control"}
 
     # Foreign Keys
-    tenant_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), nullable=False, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
 
     # IP Information
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True, index=True, comment="Single IP address (IPv4 or IPv6)")
@@ -97,7 +97,7 @@ class AuditLog(Base):
     __table_args__ = {"comment": "Immutable audit trail — partitioned by month"}
 
     # Context
-    tenant_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.tenants.id", ondelete="CASCADE"), nullable=True, index=True)
+    tenant_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
     user_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Action
@@ -144,7 +144,7 @@ class AuthEvent(Base):
     __table_args__ = {"comment": "Event outbox for reliable async event publishing"}
 
     # Context
-    tenant_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.tenants.id", ondelete="CASCADE"), nullable=True, index=True)
+    tenant_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
 
     # Event Information
     event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True, comment="USER_CREATED | ROLE_ASSIGNED | ...")

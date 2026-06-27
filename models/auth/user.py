@@ -162,6 +162,7 @@ class User(Base):
         UniqueConstraint("tenant_id", "school_id", "username", name="uq_users_tenant_school_username"),
         UniqueConstraint("tenant_id", "school_id", "email", name="uq_users_tenant_school_email"),
         UniqueConstraint("tenant_id", "school_id", "mobile_number", name="uq_users_tenant_school_mobile"),
+        Index("idx_users_tenant_school", "tenant_id", "school_id"),
         Index("idx_users_tenant_school_active", "tenant_id", "school_id", "is_active"),
         Index("idx_users_name", "last_name", "first_name"),
         {

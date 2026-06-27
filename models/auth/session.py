@@ -117,8 +117,9 @@ class UserSession(Base):
 
     __tablename__ = "user_sessions"
     __table_args__ = (
-        Index("ix_auth_session_user_active", "user_id", "is_active"),
-        Index("ix_auth_session_school_active", "school_id", "is_active"),
+        Index("ix_auth_session_tenant_school", "tenant_id", "school_id"),
+        Index("ix_auth_session_user_active", "user_id", "refresh_expires_at"),
+        Index("ix_auth_session_school_active", "school_id", "refresh_expires_at"),
         Index("ix_auth_session_refresh_expires", "refresh_expires_at"),
         {
             "comment": (

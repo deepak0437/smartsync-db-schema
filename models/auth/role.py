@@ -340,14 +340,14 @@ class RolePermissionTemplate(SoftDeleteMixin, AuditMixin, Base):
         },
     )
 
-    role_id: Mapped[int] = mapped_column(
-        SmallInteger,
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
         ForeignKey("auth.roles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    permission_id: Mapped[int] = mapped_column(
-        SmallInteger,
+    permission_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
         ForeignKey("auth.permissions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -412,10 +412,11 @@ class SchoolRolePermission(Base):
     __tablename__ = "school_role_permissions"
     __table_args__ = (
         UniqueConstraint(
-            "tenant_id", "school_id", "target_role_id", "permission_id",
+            "tenant_id", "school_id", "role_id", "permission_id",
             name="uq_auth_school_role_permission",
         ),
-        Index("ix_auth_srp_lookup", "school_id", "target_role_id", "is_granted"),
+        Index("ix_auth_srp_tenant_school", "tenant_id", "school_id"),
+        Index("ix_auth_srp_lookup", "school_id", "role_id", "permission_id"),
         Index("ix_auth_srp_permission", "permission_id"),
         Index("ix_auth_srp_source_role", "role_id"),
         {
@@ -433,8 +434,8 @@ class SchoolRolePermission(Base):
     school_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
 
     # ── Import Direction ───────────────────────────────────────────────────────
-    role_id: Mapped[int] = mapped_column(
-        SmallInteger,
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
         ForeignKey("auth.roles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -445,8 +446,8 @@ class SchoolRolePermission(Base):
             "TEACHER into PRINCIPAL', not just permission-by-permission."
         ),
     )
-    permission_id: Mapped[int] = mapped_column(
-        SmallInteger,
+    permission_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
         ForeignKey("auth.permissions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -463,8 +464,8 @@ class SchoolRolePermission(Base):
     def __repr__(self) -> str:
         return (
             f"<SchoolRolePermission school_id={self.school_id} "
-            f"{self.role_id} -> {self.target_role_id} "
-            f"perm_id={self.permission_id} granted={self.is_granted}>"
+            f"role_id={self.role_id} "
+            f"perm_id={self.permission_id}>"
         )
 
 
@@ -518,7 +519,8 @@ class UserRole(Base):
             "tenant_id", "school_id", "user_id",
             name="uq_auth_user_role_single",
         ),
-        Index("ix_auth_user_role_user", "user_id", "school_id", "is_active"),
+        Index("ix_auth_user_role_tenant_school", "tenant_id", "school_id"),
+        Index("ix_auth_user_role_user", "user_id", "school_id", "role_id"),
         Index("ix_auth_user_role_role", "role_id", "school_id"),
         {
         
@@ -540,8 +542,8 @@ class UserRole(Base):
         unique=True,
         comment="FK -> users.id. Unique: enforces one role row per user, period.",
     )
-    role_id: Mapped[int] = mapped_column(
-        SmallInteger,
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
         ForeignKey("auth.roles.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
@@ -608,6 +610,7 @@ class SchoolRoleStats(Base):
             "tenant_id", "school_id", "role_id",
             name="uq_auth_school_role_stats",
         ),
+        Index("ix_auth_srs_tenant_school", "tenant_id", "school_id"),
         Index("ix_auth_srs_school", "school_id"),
         Index("ix_auth_srs_role", "role_id"),
         Index("ix_auth_srs_school_role", "school_id", "role_id"),
@@ -633,8 +636,8 @@ class SchoolRoleStats(Base):
         index=True,
         comment="School boundary. Soft FK -> platform.schools.id",
     )
-    role_id: Mapped[int] = mapped_column(
-        SmallInteger,
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
         ForeignKey("auth.roles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
