@@ -1,1 +1,0 @@
-# Management Service DB Package

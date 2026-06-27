@@ -1,1 +1,0 @@
-# Administration Service DB Package

@@ -1,1 +1,0 @@
-# Hostel Service DB Package
