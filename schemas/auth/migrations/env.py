@@ -13,7 +13,7 @@ from alembic import context
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
 from base import Base
-import models.platform  # Ensure all platform models are imported and registered on Base.metadata
+import models.auth  # Ensure all auth models are imported and registered on Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -38,17 +38,17 @@ try:
 except Exception as e:
     sys.stderr.write(f"Warning: Failed to load database config from {config_path}: {e}\n")
 
-# 3. Set target metadata default schema to 'platform' to scope all tables
-Base.metadata.schema = "platform"
+# 3. Set target metadata default schema to 'auth' to scope all tables
+Base.metadata.schema = "auth"
 target_metadata = Base.metadata
 
 
 def include_object(object, name, type_, reflected, compare_to):
-    """Filters objects to only include those in the 'platform' schema."""
+    """Filters objects to only include those in the 'auth' schema."""
     if type_ == "table":
-        return object.schema == "platform"
+        return object.schema == "auth"
     elif type_ == "schema":
-        return name == "platform"
+        return name == "auth"
     return True
 
 
@@ -97,7 +97,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         include_schemas=True,
-        version_table_schema="platform",
+        version_table_schema="auth",
         process_revision_directives=process_revision_directives,
         include_object=include_object,
     )
@@ -111,7 +111,7 @@ def do_run_migrations(connection):
         connection=connection,
         target_metadata=target_metadata,
         include_schemas=True,
-        version_table_schema="platform",
+        version_table_schema="auth",
         process_revision_directives=process_revision_directives,
         include_object=include_object,
     )
@@ -132,8 +132,8 @@ async def run_async_migrations() -> None:
     )
 
     async with connectable.connect() as connection:
-        # Create platform schema if it doesn't exist
-        await connection.execute(text("CREATE SCHEMA IF NOT EXISTS platform"))
+        # Create auth schema if it doesn't exist
+        await connection.execute(text("CREATE SCHEMA IF NOT EXISTS auth"))
         await connection.commit()
         
         await connection.run_sync(do_run_migrations)

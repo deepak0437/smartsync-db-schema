@@ -1,3 +1,0 @@
-Single-database configuration for platform schema.
-Tracks platform models: Tenant, School, Plan, SchoolSubscription, ExpansionAddon.
-Managed with sequential serial number revisions (e.g. 01, 02, etc.).
