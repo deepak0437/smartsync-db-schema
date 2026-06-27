@@ -105,12 +105,9 @@ from typing import TYPE_CHECKING
 from base import Base, SoftDeleteMixin, AuditMixin
 
 if TYPE_CHECKING:
-    from session import UserSession, UserOTP
-    from role import UserRole
-    
-
-
-
+    from .session import UserSession, UserOTP
+    from .role import UserRole
+   
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ENUMS
@@ -135,7 +132,7 @@ class LoginFailureReason(str, enum.Enum):
 # USER — Identity & Profile (read-heavy, write-rare)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class User(SoftDeleteMixin, AuditMixin, Base):
+class User(Base):
     """
     Central identity record. One row per login-capable person per school.
 
@@ -265,11 +262,6 @@ class User(SoftDeleteMixin, AuditMixin, Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
-    login_history: Mapped[List["UserLoginHistory"]] = relationship(
-        "UserLoginHistory",
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
     sessions: Mapped[List["UserSession"]] = relationship(
         "UserSession",
         back_populates="user",
@@ -295,7 +287,7 @@ class User(SoftDeleteMixin, AuditMixin, Base):
 # USER CREDENTIALS — Password & Login Security (write-heavy, narrow read)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class UserCredentials(SoftDeleteMixin, AuditMixin, Base):
+class UserCredentials(Base):
     """
     Password and login-security state for one user. Strict 1-to-1 with User.
 
@@ -497,91 +489,4 @@ class UserVerification(Base):
             f"<UserVerification user_id={self.user_id} "
             f"email={self.email_verified} mobile={self.mobile_number_verified}>"
         )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# USER LOGIN HISTORY — Append-only Audit Trail (insert-heavy, rarely read)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class UserLoginHistory(Base):
-    """
-    One row per login attempt, successful or failed. Append-only — never
-    updated, never deleted in normal operation (retention/archival jobs
-    aside).
-
-    This is the highest write-volume table in the entire Auth Service: every
-    single login attempt by every user at every school inserts one row here.
-    It is queried almost never in the live request path — only for security
-    investigations, suspicious-activity dashboards, and compliance exports.
-    For that reason this table should be partitioned by month in production
-    (e.g. PostgreSQL native partitioning on created_at) so old partitions can
-    be archived or dropped without touching live data.
-    """
-
-    __tablename__ = "user_login_history"
-    __table_args__ = (
-        Index("idx_login_history_user_created", "user_id", "created_at"),
-        {
-
-            "comment": (
-                "Append-only login audit trail. Partition by month in "
-                "production. Never updated after insert."
-            ),
-        },
-    )
-
-    # ── Link ──────────────────────────────────────────────────────────────────
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("auth.users.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-        comment=(
-            "FK → users.id. Nullable + SET NULL on delete: a failed login "
-            "attempt against a username that doesn't exist still gets logged "
-            "(for brute-force detection) with user_id left NULL."
-        ),
-    )
-
-    # ── Attempt Details ────────────────────────────────────────────────────────
-    username_attempted: Mapped[Optional[str]] = mapped_column(
-        String(50),
-        nullable=True,
-        comment="The username as typed, captured even on failure (when user_id could not be resolved).",
-    )
-    ip_address: Mapped[str] = mapped_column(
-        INET,
-        nullable=False,
-        comment="Source IP of the login attempt.",
-    )
-    user_agent: Mapped[Optional[str]] = mapped_column(
-        String(500),
-        nullable=True,
-        comment="Raw User-Agent header from the request, for device/browser analytics.",
-    )
-    success: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        index=True,
-        comment="True if the login attempt succeeded.",
-    )
-    failure_reason: Mapped[Optional[LoginFailureReason]] = mapped_column(
-        Enum(LoginFailureReason, name="login_failure_reason_enum", schema="auth"),
-        nullable=True,
-        comment="Populated only when success=False. NULL when success=True.",
-    )
-
-    # ── Session Reference ──────────────────────────────────────────────────────
-    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("auth.user_sessions.id", ondelete="SET NULL"),
-        nullable=True,
-        comment="FK → user_sessions.id for successful logins. NULL for failed attempts.",
-    )
-
-    # ── Relationship ──────────────────────────────────────────────────────────
-    user: Mapped[Optional["User"]] = relationship("User", back_populates="login_history")
-
-    def __repr__(self) -> str:
-        return f"<UserLoginHistory user_id={self.user_id} success={self.success}>"
 

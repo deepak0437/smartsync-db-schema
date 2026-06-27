@@ -61,7 +61,7 @@ from base import Base, SoftDeleteMixin
 
 
 if TYPE_CHECKING:
-    from user import User 
+    from .user import User 
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -96,7 +96,7 @@ class OTPChannel(str, enum.Enum):
 # USER SESSION — Active JWT / Refresh Token Sessions
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class UserSession(SoftDeleteMixin, Base):
+class UserSession(Base):
     """
     One active authenticated session per device per user.
 

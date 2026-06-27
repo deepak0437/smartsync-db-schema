@@ -18,7 +18,6 @@ from .user import (
     LoginFailureReason,
     User,
     UserCredentials,
-    UserLoginHistory,
     UserVerification,
 )
 
@@ -45,5 +44,4 @@ __all__ = [
     "User",
     "UserCredentials",
     "UserVerification",
-    "UserLoginHistory",
 ]

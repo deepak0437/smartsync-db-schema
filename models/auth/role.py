@@ -65,7 +65,7 @@ from typing import TYPE_CHECKING
 from base import Base, SoftDeleteMixin, AuditMixin
 
 if TYPE_CHECKING:
-    from user import User  # noqa: F401
+    from .user import User  # noqa: F401
   
 
 
@@ -366,7 +366,7 @@ class RolePermissionTemplate(SoftDeleteMixin, AuditMixin, Base):
 # LAYER 4 — SCHOOL ROLE PERMISSIONS (Permission Import Between Roles, Per School)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class SchoolRolePermission(SoftDeleteMixin, AuditMixin, Base):
+class SchoolRolePermission(Base):
     """
     School-level permission IMPORT mechanism between two roles.
 
@@ -401,7 +401,7 @@ class SchoolRolePermission(SoftDeleteMixin, AuditMixin, Base):
     Design:
         target_role_id   — the role RECEIVING the imported permission
                             (PRINCIPAL, in the example above)
-        source_role_id   — the role the permission is being copied FROM
+        role_id   — the role the permission is being copied FROM
                             (TEACHER, in the example above) — kept so the
                             import is traceable and revocable as a group
         permission_id    — the specific permission being imported
@@ -417,11 +417,11 @@ class SchoolRolePermission(SoftDeleteMixin, AuditMixin, Base):
         ),
         Index("ix_auth_srp_lookup", "school_id", "target_role_id", "is_granted"),
         Index("ix_auth_srp_permission", "permission_id"),
-        Index("ix_auth_srp_source_role", "source_role_id"),
+        Index("ix_auth_srp_source_role", "role_id"),
         {
             "comment": (
                 "Per-school permission import: copies a permission grant from "
-                "one role (source_role_id) onto another role (target_role_id) "
+                "one role (role_id) onto another role (target_role_id) "
                 "for this school only. Layered on top of RolePermissionTemplate "
                 "at JWT generation time, never replaces it."
             ),
@@ -433,14 +433,7 @@ class SchoolRolePermission(SoftDeleteMixin, AuditMixin, Base):
     school_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
 
     # ── Import Direction ───────────────────────────────────────────────────────
-    target_role_id: Mapped[int] = mapped_column(
-        SmallInteger,
-        ForeignKey("auth.roles.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-        comment="The role RECEIVING this imported permission. E.g. PRINCIPAL.",
-    )
-    source_role_id: Mapped[int] = mapped_column(
+    role_id: Mapped[int] = mapped_column(
         SmallInteger,
         ForeignKey("auth.roles.id", ondelete="CASCADE"),
         nullable=False,
@@ -457,44 +450,20 @@ class SchoolRolePermission(SoftDeleteMixin, AuditMixin, Base):
         ForeignKey("auth.permissions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        comment="The specific permission being imported from source_role_id onto target_role_id.",
-    )
-
-    # ── Grant State ────────────────────────────────────────────────────────────
-    is_granted: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=True,
-        index=True,
-        comment=(
-            "True  = this imported permission is currently active for "
-            "target_role_id at this school. "
-            "False = import revoked without deleting the row (keeps audit trail)."
-        ),
-    )
-
-    # ── Change Tracking ────────────────────────────────────────────────────────
-    modified_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        nullable=True,
-        comment="School admin user_id who set up or last modified this import.",
+        comment="The specific permission being imported from role_id onto target_role_id.",
     )
 
     # ── Relationships ──────────────────────────────────────────────────────────
-    target_role: Mapped["Role"] = relationship(
-        "Role",
-        foreign_keys=[target_role_id],
-    )
     source_role: Mapped["Role"] = relationship(
         "Role",
-        foreign_keys=[source_role_id],
+        foreign_keys=[role_id],
     )
     permission: Mapped["Permission"] = relationship("Permission", back_populates="school_role_permissions")
 
     def __repr__(self) -> str:
         return (
             f"<SchoolRolePermission school_id={self.school_id} "
-            f"{self.source_role_id} -> {self.target_role_id} "
+            f"{self.role_id} -> {self.target_role_id} "
             f"perm_id={self.permission_id} granted={self.is_granted}>"
         )
 
@@ -503,7 +472,7 @@ class SchoolRolePermission(SoftDeleteMixin, AuditMixin, Base):
 # LAYER 5 — USER ROLES (Assigns Exactly One Role to a User)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class UserRole(SoftDeleteMixin, AuditMixin, Base):
+class UserRole(Base):
     """
     Assigns exactly ONE role to a user within a school.
 
@@ -577,18 +546,6 @@ class UserRole(SoftDeleteMixin, AuditMixin, Base):
         nullable=False,
         index=True,
         comment="The single platform role this user holds. RESTRICT prevents accidental role deletion.",
-    )
-
-    # ── Assignment Metadata ────────────────────────────────────────────────────
-    assigned_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        nullable=True,
-        comment="School admin who assigned this role",
-    )
-    assigned_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False,
     )
 
     # ── Relationships ──────────────────────────────────────────────────────────
