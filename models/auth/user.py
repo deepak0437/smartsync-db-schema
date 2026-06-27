@@ -102,7 +102,7 @@ from sqlalchemy.dialects.postgresql import INET, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import TYPE_CHECKING
 
-from base import Base
+from base import Base, SoftDeleteMixin, AuditMixin
 
 if TYPE_CHECKING:
     from session import UserSession, UserOTP
@@ -135,7 +135,7 @@ class LoginFailureReason(str, enum.Enum):
 # USER — Identity & Profile (read-heavy, write-rare)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class User(Base):
+class User(SoftDeleteMixin, AuditMixin, Base):
     """
     Central identity record. One row per login-capable person per school.
 
@@ -168,7 +168,6 @@ class User(Base):
         Index("idx_users_tenant_school_active", "tenant_id", "school_id", "is_active"),
         Index("idx_users_name", "last_name", "first_name"),
         {
-            "schema": "auth",
             "comment": (
                 "Central identity table. One row per user per school. "
                 "Holds profile/contact info only — no password, no login security state."
@@ -296,7 +295,7 @@ class User(Base):
 # USER CREDENTIALS — Password & Login Security (write-heavy, narrow read)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class UserCredentials(Base):
+class UserCredentials(SoftDeleteMixin, AuditMixin, Base):
     """
     Password and login-security state for one user. Strict 1-to-1 with User.
 
@@ -316,7 +315,6 @@ class UserCredentials(Base):
     __tablename__ = "user_credentials"
     __table_args__ = (
         {
-            "schema": "auth",
             "comment": (
                 "1-to-1 with users. Password hash and all login-security "
                 "counters. Isolated so login writes never lock profile reads."
@@ -448,7 +446,6 @@ class UserVerification(Base):
     __tablename__ = "user_verifications"
     __table_args__ = (
         {
-            "schema": "auth",
             "comment": (
                 "1-to-1 with users. Per-channel verification outcome only — "
                 "OTP codes themselves live in Redis, not here."
@@ -525,7 +522,7 @@ class UserLoginHistory(Base):
     __table_args__ = (
         Index("idx_login_history_user_created", "user_id", "created_at"),
         {
-            "schema": "auth",
+
             "comment": (
                 "Append-only login audit trail. Partition by month in "
                 "production. Never updated after insert."

@@ -7,16 +7,17 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from base import Base
+from base import Base, SoftDeleteMixin, AuditMixin 
 
 
-class APIKey(Base):
+
+class APIKey(SoftDeleteMixin, AuditMixin, Base):
     """
     API keys for service-to-service authentication and external integrations.
     Key value is NEVER stored — only a SHA-256 hash is persisted.
     """
     __tablename__ = "api_keys"
-    __table_args__ = {"schema": "auth", "comment": "Service-to-service and integration API keys"}
+    __table_args__ = {"comment": "Service-to-service and integration API keys"}
 
     # Foreign Keys
     tenant_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.tenants.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -54,13 +55,13 @@ class APIKey(Base):
         return f"<APIKey(name={self.key_name}, service={self.service_name})>"
 
 
-class IPWhitelist(Base):
+class IPWhitelist(SoftDeleteMixin, AuditMixin, Base):
     """
     IP address whitelist for tenant-level access control.
     Restricts logins to specific IPs or ranges.
     """
     __tablename__ = "ip_whitelist"
-    __table_args__ = {"schema": "auth", "comment": "IP whitelist for tenant access control"}
+    __table_args__ = {"comment": "IP whitelist for tenant access control"}
 
     # Foreign Keys
     tenant_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.tenants.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -93,7 +94,7 @@ class AuditLog(Base):
     Immutable — records are never updated or deleted.
     """
     __tablename__ = "audit_logs"
-    __table_args__ = {"schema": "auth", "comment": "Immutable audit trail — partitioned by month"}
+    __table_args__ = {"comment": "Immutable audit trail — partitioned by month"}
 
     # Context
     tenant_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.tenants.id", ondelete="CASCADE"), nullable=True, index=True)
@@ -140,7 +141,7 @@ class AuthEvent(Base):
     - TENANT_CREATED, TENANT_SUSPENDED
     """
     __tablename__ = "auth_events"
-    __table_args__ = {"schema": "auth", "comment": "Event outbox for reliable async event publishing"}
+    __table_args__ = {"comment": "Event outbox for reliable async event publishing"}
 
     # Context
     tenant_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.tenants.id", ondelete="CASCADE"), nullable=True, index=True)

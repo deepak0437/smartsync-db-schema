@@ -57,7 +57,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import INET, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from base import Base
+from base import Base, SoftDeleteMixin
 
 
 if TYPE_CHECKING:
@@ -96,7 +96,7 @@ class OTPChannel(str, enum.Enum):
 # USER SESSION — Active JWT / Refresh Token Sessions
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class UserSession(Base):
+class UserSession(SoftDeleteMixin, Base):
     """
     One active authenticated session per device per user.
 
@@ -121,7 +121,6 @@ class UserSession(Base):
         Index("ix_auth_session_school_active", "school_id", "is_active"),
         Index("ix_auth_session_refresh_expires", "refresh_expires_at"),
         {
-            "schema": "auth",
             "comment": (
                 "Active user sessions. One row per login per device. "
                 "Refresh tokens live here, not in the users table."
@@ -256,7 +255,6 @@ class UserOTP(Base):
         Index("ix_auth_otp_target", "target_address", "created_at"),
         Index("ix_auth_otp_tenant_school", "tenant_id", "school_id", "created_at"),
         {
-            "schema": "auth",
             "comment": (
                 "Generic OTP store. Redis is primary; this is the durable fallback "
                 "and attempt-tracking source of truth."

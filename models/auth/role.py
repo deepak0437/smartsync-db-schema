@@ -62,7 +62,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from typing import TYPE_CHECKING
-from base import Base
+from base import Base, SoftDeleteMixin, AuditMixin
 
 if TYPE_CHECKING:
     from user import User  # noqa: F401
@@ -73,7 +73,7 @@ if TYPE_CHECKING:
 # LAYER 1 — ROLES (Platform-Controlled Master Table)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class Role(Base):
+class Role(SoftDeleteMixin, AuditMixin, Base):
     """
     Platform-defined role catalog — the top-level role label only.
 
@@ -103,7 +103,6 @@ class Role(Base):
         UniqueConstraint("code", name="uq_auth_role_code"),
         Index("ix_auth_role_category", "category"),
         {
-            "schema": "auth",
             "comment": "Platform-defined top-level role catalog. Schools cannot create roles.",
         },
     )
@@ -170,7 +169,7 @@ class Role(Base):
 # LAYER 2 — PERMISSIONS (Platform-Controlled Master Table)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class Permission(Base):
+class Permission(SoftDeleteMixin, AuditMixin, Base):
     """
     Platform-defined permission catalog.
 
@@ -211,7 +210,6 @@ class Permission(Base):
         Index("ix_auth_permission_module", "module"),
         Index("ix_auth_permission_module_submodule", "module", "submodule"),
         {
-            "schema": "auth",
             "comment": "Platform-defined permission catalog. Schools cannot create permissions.",
         },
     )
@@ -297,7 +295,7 @@ class Permission(Base):
 # LAYER 3 — ROLE PERMISSION TEMPLATES (Platform Defaults — Role <-> Permission Map)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class RolePermissionTemplate(Base):
+class RolePermissionTemplate(SoftDeleteMixin, AuditMixin, Base):
     """
     Platform's default mapping of Role <-> Permission. Many-to-many.
 
@@ -334,7 +332,6 @@ class RolePermissionTemplate(Base):
         Index("ix_auth_rpt_role_id", "role_id"),
         Index("ix_auth_rpt_permission_id", "permission_id"),
         {
-            "schema": "auth",
             "comment": (
                 "Platform's default many-to-many role-permission map. "
                 "Read-only for schools. Schools layer additional grants via "
@@ -369,7 +366,7 @@ class RolePermissionTemplate(Base):
 # LAYER 4 — SCHOOL ROLE PERMISSIONS (Permission Import Between Roles, Per School)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class SchoolRolePermission(Base):
+class SchoolRolePermission(SoftDeleteMixin, AuditMixin, Base):
     """
     School-level permission IMPORT mechanism between two roles.
 
@@ -422,7 +419,6 @@ class SchoolRolePermission(Base):
         Index("ix_auth_srp_permission", "permission_id"),
         Index("ix_auth_srp_source_role", "source_role_id"),
         {
-            "schema": "auth",
             "comment": (
                 "Per-school permission import: copies a permission grant from "
                 "one role (source_role_id) onto another role (target_role_id) "
@@ -507,7 +503,7 @@ class SchoolRolePermission(Base):
 # LAYER 5 — USER ROLES (Assigns Exactly One Role to a User)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class UserRole(Base):
+class UserRole(SoftDeleteMixin, AuditMixin, Base):
     """
     Assigns exactly ONE role to a user within a school.
 
@@ -556,7 +552,7 @@ class UserRole(Base):
         Index("ix_auth_user_role_user", "user_id", "school_id", "is_active"),
         Index("ix_auth_user_role_role", "role_id", "school_id"),
         {
-            "schema": "auth",
+        
             "comment": (
                 "Exactly one role per user per school. Unique constraint has "
                 "no role_id — a user cannot hold a second role row."
@@ -659,7 +655,6 @@ class SchoolRoleStats(Base):
         Index("ix_auth_srs_role", "role_id"),
         Index("ix_auth_srs_school_role", "school_id", "role_id"),
         {
-            "schema": "auth",
             "comment": (
                 "Real-time user count per role per school. "
                 "Automatically updated by triggers on user_roles and users tables. "
