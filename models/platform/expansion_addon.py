@@ -23,7 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from base import Base, SoftDeleteMixin, AuditMixin
-from .enums import ExpansionType, CapacityExpansionPack, TenureMonths, UserCount
+from .enums import ExpansionType, CapacityExpansionPack, TenureMonths, StorageLimit
 
 
 
@@ -36,11 +36,6 @@ class ExpansionAddon(SoftDeleteMixin, AuditMixin, Base):
 
     __tablename__ = "expansion_addons"
     __table_args__ = (
-        # ── CHECK constraints ────────────────────────────────────────────
-        CheckConstraint(
-            "user_count > 0",
-            name="positive_addon_users",
-        ),
         CheckConstraint(
             "price > 0",
             name="positive_addon_price",
@@ -71,10 +66,10 @@ class ExpansionAddon(SoftDeleteMixin, AuditMixin, Base):
         nullable=False,
     )
 
-    expansion_pack: Mapped[CapacityExpansionPack] = mapped_column(
+    user_count: Mapped[CapacityExpansionPack] = mapped_column(
         SAEnum(
             CapacityExpansionPack,
-            name="capacity_expansion_pack",
+            name="expansion_user_count",
             schema="platform",
             create_type=False,
         ),
@@ -85,16 +80,6 @@ class ExpansionAddon(SoftDeleteMixin, AuditMixin, Base):
         SAEnum(
             TenureMonths,
             name="addon_tenure",
-            schema="platform",
-            create_type=False,
-        ),
-        nullable=False,
-    )
-
-    user_count: Mapped[UserCount] = mapped_column(
-        SAEnum(
-            UserCount,
-            name="addon_user_count",
             schema="platform",
             create_type=False,
         ),
@@ -114,6 +99,17 @@ class ExpansionAddon(SoftDeleteMixin, AuditMixin, Base):
     discount_percentage: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(5, 2),
         nullable=True,
+    )
+    
+    storage: Mapped[StorageLimit] = mapped_column(
+        SAEnum(
+            StorageLimit,
+            name="storage_limit",
+            schema="platform",
+            create_type=False,
+        ),
+        nullable=False,
+        comment="Storage limit in GB"
     )
 
     is_active: Mapped[bool] = mapped_column(

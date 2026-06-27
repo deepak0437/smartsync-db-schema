@@ -13,6 +13,7 @@ from alembic import context
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
 from base import Base
+Base.metadata.schema = "platform"
 import models.platform  # Ensure all platform models are imported and registered on Base.metadata
 
 # this is the Alembic Config object, which provides

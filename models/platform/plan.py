@@ -33,27 +33,10 @@ class Plan(SoftDeleteMixin, AuditMixin, Base):
 
     __tablename__ = "plans"
     __table_args__ = (
-        # Tenure boundary: 1–60 months
-        CheckConstraint(
-            "tenure > 0 AND tenure <= 60",
-            name="valid_tenure_range",
-        ),
         # Positive pricing
         CheckConstraint(
             "price > 0",
             name="positive_price",
-        ),
-        # Positive user count
-        CheckConstraint(
-            "user_count > 0",
-            name="positive_user_count",
-        ),
-        # Unique plan name among live plans
-        Index(
-            "uq_plans_name_active",
-            "name",
-            unique=True,
-            postgresql_where=text("deleted_at IS NULL"),
         ),
         # Unique plan code among live plans
         Index(
@@ -65,8 +48,8 @@ class Plan(SoftDeleteMixin, AuditMixin, Base):
         # Storefront query index
         Index(
             "ix_plans_type_variant_active",
-            "plan_type",
-            "plan_variant",
+            "type",
+            "variant",
             postgresql_where=text("is_active = TRUE AND deleted_at IS NULL"),
         ),
     )
@@ -162,6 +145,6 @@ class Plan(SoftDeleteMixin, AuditMixin, Base):
     def __repr__(self) -> str:
         return (
             f"<Plan id={self.id!s} code={self.code!r} "
-            f"type={self.plan_type.value} variant={self.plan_variant.value}>"
+            f"type={self.type.value} variant={self.variant.value}>"
         )
 

@@ -44,23 +44,11 @@ class SchoolSubscription(Base):
             "remaining_users >= 0",
             name="remaining_non_negative",
         ),
-        CheckConstraint(
-            "expires_at > starts_at",
-            name="expiry_after_start",
-        ),
         # ── Indexes ──────────────────────────────────────────────────────
         # Enforces max ONE active subscription per school at DB level
         Index(
             "uq_subscriptions_school_id_active",
             "school_id",
-            unique=True,
-            postgresql_where=text("status = 'ACTIVE' AND deleted_at IS NULL"),
-        ),
-        # Expiration batch jobs
-        Index(
-            "ix_subscriptions_expires_at_active",
-            "expires_at",
-            postgresql_where=text("status = 'ACTIVE'"),
         ),
         # Plan usage analytics
         Index(
@@ -71,7 +59,6 @@ class SchoolSubscription(Base):
         Index(
             "ix_subscriptions_tenant_id_active",
             "tenant_id",
-            postgresql_where=text("status = 'ACTIVE' AND deleted_at IS NULL"),
         ),
     )
 
@@ -155,6 +142,6 @@ class SchoolSubscription(Base):
         return (
             f"<SchoolSubscription id={self.id!s} school_id={self.school_id!s} "
             f"status={self.status.value} users={self.remaining_users}/"
-            f"{self.effective_max_users}>"
+            
         )
 

@@ -116,6 +116,8 @@ class UserCount(int, enum.Enum):
         USERS_4500 →  4,500 users
         USERS_5500 →  5,500 users
     """
+    USERS_500 = 500
+    USERS_1000=  1000
     USERS_1500 = 1500
     USERS_2500 = 2500
     USERS_3500 = 3500
@@ -125,11 +127,6 @@ class UserCount(int, enum.Enum):
     USERS_3000 = 3000
     USERS_4000 = 4000
     USERS_5000 = 5000
-
-
-# Fixed user counts for entry plans (not selectable — hardcoded)
-CORE_ENTRY_USER_COUNT   = 500   # A1 — always 500, no choice
-GROWTH_ENTRY_USER_COUNT = 1000  # B1 — always 1000, no choice
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

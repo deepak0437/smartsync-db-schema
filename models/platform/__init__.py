@@ -20,6 +20,7 @@ from .enums import (
     SubscriptionStatus,
     TenantStatus,
     UserCount,
+    CapacityExpansionPack,
 )
 from .expansion_addon import ExpansionAddon
 from .plan import Plan
@@ -43,5 +44,6 @@ __all__ = [
     "Plan",
     "SchoolSubscription",
     "ExpansionAddon",
-    "UserCount"
+    "UserCount",
+    "CapacityExpansionPack"
 ]
