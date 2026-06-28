@@ -15,4 +15,4 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["models*", "base*"]
+include = ["smartsync_db*"]
