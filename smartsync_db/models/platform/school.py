@@ -65,7 +65,7 @@ class School(SoftDeleteMixin, AuditMixin, Base):
 
     # ── Columns ──────────────────────────────────────────────────────────
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenants.id"),
+        ForeignKey("platform.tenants.id"),
         nullable=False,
     )
 

@@ -65,23 +65,23 @@ class SchoolSubscription(Base):
 
     # ── Columns ──────────────────────────────────────────────────────────
     school_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("schools.id"),
+        ForeignKey("platform.schools.id"),
         nullable=False,
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenants.id"),
+        ForeignKey("platform.tenants.id"),
         nullable=False,
         comment="Denormalized from school.tenant_id for tenant-scoped queries and future sharding",
     )
 
     plan_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("plans.id"),
+        ForeignKey("platform.plans.id"),
         nullable=False,
     )
 
     addon_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("expansion_addons.id"),
+        ForeignKey("platform.expansion_addons.id"),
         nullable=True,
         comment="Addon plan ID - null by default"
     )
