@@ -46,6 +46,7 @@ import uuid
 from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     Enum,
@@ -54,7 +55,7 @@ from sqlalchemy import (
     Integer,
     String,
 )
-from sqlalchemy.dialects.postgresql import INET, UUID
+from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from smartsync_db.base import Base, SoftDeleteMixin
@@ -131,8 +132,8 @@ class UserSession(Base):
     )
 
     # ── Tenant & School Scoping ────────────────────────────────────────────────
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    tenant_id: Mapped[int] = mapped_column(
+        BigInteger,
         nullable=False,
         index=True,
         comment=(
@@ -142,8 +143,8 @@ class UserSession(Base):
             "a cross-table join. Required for efficient data isolation queries."
         ),
     )
-    school_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    school_id: Mapped[int] = mapped_column(
+        BigInteger,
         nullable=False,
         index=True,
         comment=(
@@ -152,8 +153,8 @@ class UserSession(Base):
             "(e.g., 'active sessions in this school' without joining to users table)."
         ),
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("auth.users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -266,8 +267,8 @@ class UserOTP(Base):
     )
 
     # ── Tenant & School Scoping ────────────────────────────────────────────────
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    tenant_id: Mapped[int] = mapped_column(
+        BigInteger,
         nullable=False,
         index=True,
         comment=(
@@ -275,8 +276,8 @@ class UserOTP(Base):
             "Denormalized here for efficient multi-tenant queries and data isolation."
         ),
     )
-    school_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    school_id: Mapped[int] = mapped_column(
+        BigInteger,
         nullable=False,
         index=True,
         comment=(
@@ -286,8 +287,8 @@ class UserOTP(Base):
     )
 
     # ── Link ───────────────────────────────────────────────────────────────────
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("auth.users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

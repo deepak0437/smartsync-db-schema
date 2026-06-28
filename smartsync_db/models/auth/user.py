@@ -89,6 +89,7 @@ import uuid
 from typing import List, Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     Enum,
@@ -98,7 +99,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Index,
 )
-from sqlalchemy.dialects.postgresql import INET, UUID
+from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import TYPE_CHECKING
 
@@ -175,8 +176,8 @@ class User(Base):
     )
 
     # ── Tenant & School Scoping ────────────────────────────────────────────────
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    tenant_id: Mapped[int] = mapped_column(
+        BigInteger,
         nullable=False,
         index=True,
         comment=(
@@ -184,8 +185,8 @@ class User(Base):
             "service database boundaries)."
         ),
     )
-    school_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    school_id: Mapped[int] = mapped_column(
+        BigInteger,
         nullable=False,
         index=True,
         comment="Owning school. Soft FK → platform.schools.id.",
@@ -318,8 +319,8 @@ class UserCredentials(Base):
     )
 
     # ── Link ──────────────────────────────────────────────────────────────────
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("auth.users.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
@@ -450,8 +451,8 @@ class UserVerification(Base):
     )
 
     # ── Link ──────────────────────────────────────────────────────────────────
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("auth.users.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,

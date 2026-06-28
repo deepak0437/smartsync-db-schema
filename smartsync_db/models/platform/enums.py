@@ -21,6 +21,25 @@ class TenantStatus(str, enum.Enum):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# TENANT TYPE
+# ═══════════════════════════════════════════════════════════════════════════════
+class TenantType(str, enum.Enum):
+    """
+    Organizational structure type.
+
+    Types:
+        SINGLE_SCHOOL: Independent school
+        SCHOOL_GROUP: Education company with multiple schools
+        GOVERNMENT_BLOCK: Government education department/block
+        UNIVERSITY: Higher education institution
+    """
+
+    SINGLE_SCHOOL = "SINGLE_SCHOOL"
+    SCHOOL_GROUP = "SCHOOL_GROUP"
+    GOVERNMENT_BLOCK = "GOVERNMENT_BLOCK"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SCHOOL STATUS  (inside tenant level group)
 # ═══════════════════════════════════════════════════════════════════════════════
 class SchoolStatus(str, enum.Enum):

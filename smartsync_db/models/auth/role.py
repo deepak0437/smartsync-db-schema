@@ -49,6 +49,7 @@ import uuid
 from typing import List, Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -58,7 +59,6 @@ from sqlalchemy import (
     UniqueConstraint,
     SmallInteger,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from typing import TYPE_CHECKING
@@ -343,14 +343,14 @@ class RolePermissionTemplate(SoftDeleteMixin, AuditMixin, Base):
         },
     )
 
-    role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    role_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("auth.roles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    permission_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    permission_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("auth.permissions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -434,12 +434,12 @@ class SchoolRolePermission(Base):
     )
 
     # ── Scoping ────────────────────────────────────────────────────────────────
-    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
-    school_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    school_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
 
     # ── Import Direction ───────────────────────────────────────────────────────
-    role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    role_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("auth.roles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -450,8 +450,8 @@ class SchoolRolePermission(Base):
             "TEACHER into PRINCIPAL', not just permission-by-permission."
         ),
     )
-    permission_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    permission_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("auth.permissions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -536,18 +536,18 @@ class UserRole(Base):
     )
 
     # ── Scoping ────────────────────────────────────────────────────────────────
-    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
-    school_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    school_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("auth.users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         unique=True,
         comment="FK -> users.id. Unique: enforces one role row per user, period.",
     )
-    role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    role_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("auth.roles.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
@@ -629,20 +629,20 @@ class SchoolRoleStats(Base):
     )
 
     # ── Scoping ────────────────────────────────────────────────────────────────
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    tenant_id: Mapped[int] = mapped_column(
+        BigInteger,
         nullable=False,
         index=True,
         comment="Org boundary. Soft FK -> platform.tenants.id",
     )
-    school_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    school_id: Mapped[int] = mapped_column(
+        BigInteger,
         nullable=False,
         index=True,
         comment="School boundary. Soft FK -> platform.schools.id",
     )
-    role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    role_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("auth.roles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

@@ -13,7 +13,7 @@ from sqlalchemy import Enum as SAEnum, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from smartsync_db.base import Base, SoftDeleteMixin, AuditMixin
-from .enums import TenantStatus
+from .enums import TenantStatus, TenantType
 
 if TYPE_CHECKING:
     from .school import School
@@ -69,6 +69,17 @@ class Tenant(SoftDeleteMixin, AuditMixin, Base):
         ),
         nullable=False,
         server_default=TenantStatus.ACTIVE.value,
+    )
+
+    type: Mapped[TenantType] = mapped_column(
+        SAEnum(
+            TenantType,
+            name="tenant_type_enum",
+            schema="platform",
+            create_type=False,
+        ),
+        nullable=False,
+        server_default=TenantType.SINGLE_SCHOOL.value,
     )
 
     description: Mapped[Optional[str]] = mapped_column(

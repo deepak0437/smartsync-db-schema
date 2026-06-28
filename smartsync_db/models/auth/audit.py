@@ -3,8 +3,8 @@ API keys, IP whitelist, audit logs and event outbox models.
 """
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from smartsync_db.base import Base, SoftDeleteMixin, AuditMixin 
@@ -23,7 +23,7 @@ class APIKey(SoftDeleteMixin, AuditMixin, Base):
     }
 
     # Foreign Keys
-    tenant_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), nullable=False, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
+    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
 
     # Key Information
     key_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="Human-readable key name")
@@ -67,7 +67,7 @@ class IPWhitelist(SoftDeleteMixin, AuditMixin, Base):
     __table_args__ = {"comment": "IP whitelist for tenant access control"}
 
     # Foreign Keys
-    tenant_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), nullable=False, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
+    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
 
     # IP Information
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True, index=True, comment="Single IP address (IPv4 or IPv6)")
@@ -80,7 +80,7 @@ class IPWhitelist(SoftDeleteMixin, AuditMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Added By
-    added_by: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.users.id"), nullable=True)
+    added_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("auth.users.id"), nullable=True)
 
     # Extra Metadata
     extra_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default={})
@@ -100,13 +100,13 @@ class AuditLog(Base):
     __table_args__ = {"comment": "Immutable audit trail — partitioned by month"}
 
     # Context
-    tenant_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
-    user_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True, index=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Action
     action: Mapped[str] = mapped_column(String(100), nullable=False, index=True, comment="CREATE | UPDATE | DELETE | LOGIN | LOGOUT | APPROVE ...")
     resource_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True, comment="USER | ROLE | PERMISSION | TENANT ...")
-    resource_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    resource_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
 
     # Data snapshots
     old_values: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True, comment="JSON snapshot before change")
@@ -116,7 +116,7 @@ class AuditLog(Base):
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True, comment="Correlation request ID")
-    session_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    session_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     # Result
     status: Mapped[str | None] = mapped_column(String(20), nullable=True, comment="SUCCESS | FAILED")
@@ -147,7 +147,7 @@ class AuthEvent(Base):
     __table_args__ = {"comment": "Event outbox for reliable async event publishing"}
 
     # Context
-    tenant_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
 
     # Event Information
     event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True, comment="USER_CREATED | ROLE_ASSIGNED | ...")
@@ -155,15 +155,15 @@ class AuthEvent(Base):
 
     # Aggregate
     aggregate_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True, comment="USER | ROLE | TENANT")
-    aggregate_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), nullable=False, index=True, comment="ID of the aggregate root")
+    aggregate_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True, comment="ID of the aggregate root")
 
     # Payload
     event_data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, comment="Full event payload (immutable once written)")
 
     # Causation chain
-    user_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True, comment="User who triggered the event")
-    correlation_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True, comment="Groups related events (e.g. one request)")
-    causation_id: Mapped[Any | None] = mapped_column(UUID(as_uuid=True), nullable=True, comment="ID of the event that caused this event")
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True, comment="User who triggered the event")
+    correlation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True, comment="Groups related events (e.g. one request)")
+    causation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, comment="ID of the event that caused this event")
 
     # Publishing status
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)

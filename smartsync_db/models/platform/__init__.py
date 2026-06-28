@@ -19,6 +19,7 @@ from .enums import (
     StorageLimit,
     SubscriptionStatus,
     TenantStatus,
+    TenantType,
     UserCount,
     CapacityExpansionPack,
 )
@@ -31,6 +32,7 @@ from .tenant import Tenant
 __all__ = [
     # Enums
     "TenantStatus",
+    "TenantType",
     "SchoolStatus",
     "PlanType",
     "PlanVariant",

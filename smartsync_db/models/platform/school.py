@@ -11,6 +11,7 @@ import uuid
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
+    BigInteger,
     Enum as SAEnum,
     ForeignKey,
     Index,
@@ -64,7 +65,8 @@ class School(SoftDeleteMixin, AuditMixin, Base):
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
+    tenant_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("platform.tenants.id"),
         nullable=False,
     )

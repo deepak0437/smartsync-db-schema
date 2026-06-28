@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     Enum as SAEnum,
@@ -64,23 +65,27 @@ class SchoolSubscription(Base):
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
-    school_id: Mapped[uuid.UUID] = mapped_column(
+    school_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("platform.schools.id"),
         nullable=False,
     )
 
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
+    tenant_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("platform.tenants.id"),
         nullable=False,
         comment="Denormalized from school.tenant_id for tenant-scoped queries and future sharding",
     )
 
-    plan_id: Mapped[uuid.UUID] = mapped_column(
+    plan_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("platform.plans.id"),
         nullable=False,
     )
 
-    addon_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    addon_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
         ForeignKey("platform.expansion_addons.id"),
         nullable=True,
         comment="Addon plan ID - null by default"
