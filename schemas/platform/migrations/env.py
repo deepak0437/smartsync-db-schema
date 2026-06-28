@@ -12,9 +12,9 @@ from alembic import context
 # 1. Inject the workspace root into sys.path to allow imports from base and models
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
-from base import Base
+from smartsync_db.base import Base
 Base.metadata.schema = "platform"
-import models.platform  # Ensure all platform models are imported and registered on Base.metadata
+import smartsync_db.models.platform  # Ensure all platform models are imported and registered on Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -66,7 +66,7 @@ def process_revision_directives(context, revision, directives):
                 next_num = 1
             else:
                 max_num = 0
-                for r in script_directory.get_all_revisions():
+                for r in script_directory.walk_revisions():
                     try:
                         val = int(r.revision)
                         if val > max_num:

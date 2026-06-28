@@ -57,7 +57,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import INET, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from base import Base, SoftDeleteMixin
+from smartsync_db.base import Base, SoftDeleteMixin
 
 
 if TYPE_CHECKING:
@@ -126,6 +126,7 @@ class UserSession(Base):
                 "Active user sessions. One row per login per device. "
                 "Refresh tokens live here, not in the users table."
             ),
+            "schema": "auth",
         },
     )
 
@@ -260,6 +261,7 @@ class UserOTP(Base):
                 "Generic OTP store. Redis is primary; this is the durable fallback "
                 "and attempt-tracking source of truth."
             ),
+            "schema": "auth",
         },
     )
 

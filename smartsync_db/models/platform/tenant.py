@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, List
 from sqlalchemy import Enum as SAEnum, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from base import Base, SoftDeleteMixin, AuditMixin
+from smartsync_db.base import Base, SoftDeleteMixin, AuditMixin
 from .enums import TenantStatus
 
 if TYPE_CHECKING:
@@ -40,6 +40,7 @@ class Tenant(SoftDeleteMixin, AuditMixin, Base):
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
+        {"schema": "platform"},
     )
 
     # ── Columns ──────────────────────────────────────────────────────────

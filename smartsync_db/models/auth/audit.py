@@ -5,9 +5,9 @@ from typing import Any
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
-from base import Base, SoftDeleteMixin, AuditMixin 
+from smartsync_db.base import Base, SoftDeleteMixin, AuditMixin 
 
 
 
@@ -17,7 +17,10 @@ class APIKey(SoftDeleteMixin, AuditMixin, Base):
     Key value is NEVER stored — only a SHA-256 hash is persisted.
     """
     __tablename__ = "api_keys"
-    __table_args__ = {"comment": "Service-to-service and integration API keys"}
+    __table_args__ = {
+        "comment": "Service-to-service and integration API keys",
+        "schema": "auth",
+    }
 
     # Foreign Keys
     tenant_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), nullable=False, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")

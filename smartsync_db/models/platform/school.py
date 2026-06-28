@@ -20,7 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from base import Base, SoftDeleteMixin, AuditMixin
+from smartsync_db.base import Base, SoftDeleteMixin, AuditMixin
 from .enums import SchoolStatus, BoardType
 
 if TYPE_CHECKING:
@@ -60,6 +60,7 @@ class School(SoftDeleteMixin, AuditMixin, Base):
             "city",
             postgresql_where=text("deleted_at IS NULL"),
         ),
+        {"schema": "platform"},
     )
 
     # ── Columns ──────────────────────────────────────────────────────────

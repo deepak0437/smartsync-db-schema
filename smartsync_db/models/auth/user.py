@@ -102,7 +102,7 @@ from sqlalchemy.dialects.postgresql import INET, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import TYPE_CHECKING
 
-from base import Base, SoftDeleteMixin, AuditMixin
+from smartsync_db.base import Base, SoftDeleteMixin, AuditMixin
 
 if TYPE_CHECKING:
     from .session import UserSession, UserOTP
@@ -170,6 +170,7 @@ class User(Base):
                 "Central identity table. One row per user per school. "
                 "Holds profile/contact info only — no password, no login security state."
             ),
+            "schema": "auth",
         },
     )
 
@@ -312,6 +313,7 @@ class UserCredentials(Base):
                 "1-to-1 with users. Password hash and all login-security "
                 "counters. Isolated so login writes never lock profile reads."
             ),
+            "schema": "auth",
         },
     )
 
@@ -443,6 +445,7 @@ class UserVerification(Base):
                 "1-to-1 with users. Per-channel verification outcome only — "
                 "OTP codes themselves live in Redis, not here."
             ),
+            "schema": "auth",
         },
     )
 

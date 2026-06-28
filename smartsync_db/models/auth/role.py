@@ -62,7 +62,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from typing import TYPE_CHECKING
-from base import Base, SoftDeleteMixin, AuditMixin
+from smartsync_db.base import Base, SoftDeleteMixin, AuditMixin
 
 if TYPE_CHECKING:
     from .user import User  # noqa: F401
@@ -104,6 +104,7 @@ class Role(SoftDeleteMixin, AuditMixin, Base):
         Index("ix_auth_role_category", "category"),
         {
             "comment": "Platform-defined top-level role catalog. Schools cannot create roles.",
+            "schema": "auth",
         },
     )
 
@@ -211,6 +212,7 @@ class Permission(SoftDeleteMixin, AuditMixin, Base):
         Index("ix_auth_permission_module_submodule", "module", "submodule"),
         {
             "comment": "Platform-defined permission catalog. Schools cannot create permissions.",
+            "schema": "auth",
         },
     )
 
@@ -337,6 +339,7 @@ class RolePermissionTemplate(SoftDeleteMixin, AuditMixin, Base):
                 "Read-only for schools. Schools layer additional grants via "
                 "SchoolRolePermission (permission import between roles)."
             ),
+            "schema": "auth",
         },
     )
 
@@ -426,6 +429,7 @@ class SchoolRolePermission(Base):
                 "for this school only. Layered on top of RolePermissionTemplate "
                 "at JWT generation time, never replaces it."
             ),
+            "schema": "auth",
         },
     )
 
@@ -523,11 +527,11 @@ class UserRole(Base):
         Index("ix_auth_user_role_user", "user_id", "school_id", "role_id"),
         Index("ix_auth_user_role_role", "role_id", "school_id"),
         {
-        
             "comment": (
                 "Exactly one role per user per school. Unique constraint has "
                 "no role_id — a user cannot hold a second role row."
             ),
+            "schema": "auth",
         },
     )
 
@@ -620,6 +624,7 @@ class SchoolRoleStats(Base):
                 "Automatically updated by triggers on user_roles and users tables. "
                 "Single source of truth for role-based subscription usage."
             ),
+            "schema": "auth",
         },
     )
 

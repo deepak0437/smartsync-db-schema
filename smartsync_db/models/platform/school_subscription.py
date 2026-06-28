@@ -17,7 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from base import Base
+from smartsync_db.base import Base
 from .enums import SubscriptionStatus
 
 if TYPE_CHECKING:
@@ -60,6 +60,7 @@ class SchoolSubscription(Base):
             "ix_subscriptions_tenant_id_active",
             "tenant_id",
         ),
+        {"schema": "platform"},
     )
 
     # ── Columns ──────────────────────────────────────────────────────────

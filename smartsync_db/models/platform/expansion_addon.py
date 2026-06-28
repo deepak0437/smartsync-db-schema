@@ -1,10 +1,12 @@
-"""Plan model — immutable product catalog.
+"""ExpansionAddon model — mid-term capacity booster.
 
-Plans are never updated in place.  Old plans are archived (``is_active=False``)
-and new plans are created.  This preserves historical pricing fidelity.
+Tied to the active base subscription's remaining tenure.  The addon's
+``expires_at`` must be ≤ the parent subscription's ``expires_at`` — this
+invariant is enforced at the service layer since cross-table CHECK
+constraints are not supported in PostgreSQL.
+
+Once purchased, addons cannot be cancelled — they run until expiry.
 """
-
-from __future__ import annotations
 
 from decimal import Decimal
 from typing import Optional
@@ -20,107 +22,86 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from base import Base, SoftDeleteMixin, AuditMixin
-from .enums import PlanType, PlanVariant, TenureMonths, StorageLimit, UserCount
+from smartsync_db.base import Base, SoftDeleteMixin, AuditMixin
+from .enums import ExpansionType, CapacityExpansionPack, TenureMonths, StorageLimit
 
 
-class Plan(SoftDeleteMixin, AuditMixin, Base):
-    """Immutable product catalog entry.
 
-    Defines a plan tier (CORE / GROWTH), pricing variant (ENTRY / SCALABLE),
-    user counts, tenure, and pricing.
+class ExpansionAddon(SoftDeleteMixin, AuditMixin, Base):
+    """Mid-term capacity booster attached to an active subscription.
+
+    Adds ``user_count`` users to the subscription's
+    ``effective_max_users`` for the remaining tenure.
     """
 
-    __tablename__ = "plans"
+    __tablename__ = "expansion_addons"
     __table_args__ = (
-        # Positive pricing
         CheckConstraint(
             "price > 0",
-            name="positive_price",
+            name="positive_addon_price",
         ),
-        # Unique plan code among live plans
+        # ── Indexes ──────────────────────────────────────────────────────
         Index(
-            "uq_plans_code_active",
+            "uq_addons_code_active",
             "code",
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
-        # Storefront query index
-        Index(
-            "ix_plans_type_variant_active",
-            "type",
-            "variant",
-            postgresql_where=text("is_active = TRUE AND deleted_at IS NULL"),
-        ),
+        {"schema": "platform"},
     )
 
     # ── Columns ──────────────────────────────────────────────────────────
     code: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
-        comment="Unique plan code for multi-tenant support"
+        comment="Unique addon code for multi-tenant support"
     )
 
-    type: Mapped[PlanType] = mapped_column(
+    expansion_type: Mapped[ExpansionType] = mapped_column(
         SAEnum(
-            PlanType,
-            name="plan_type",
+            ExpansionType,
+            name="expansion_type",
             schema="platform",
             create_type=False,
         ),
         nullable=False,
     )
 
-    variant: Mapped[PlanVariant] = mapped_column(
+    user_count: Mapped[CapacityExpansionPack] = mapped_column(
         SAEnum(
-            PlanVariant,
-            name="plan_variant",
+            CapacityExpansionPack,
+            name="expansion_user_count",
             schema="platform",
             create_type=False,
         ),
         nullable=False,
-    )
-    
-    user_count: Mapped[UserCount] = mapped_column(
-        SAEnum(
-            UserCount,
-            name="plan_user_count",
-            schema="platform",
-            create_type=False,
-        ),
-        nullable=False,
-        comment="Allowed user count for the plan"
     )
 
     tenure: Mapped[TenureMonths] = mapped_column(
         SAEnum(
             TenureMonths,
-            name="plan_tenure",
+            name="addon_tenure",
             schema="platform",
             create_type=False,
         ),
         nullable=False,
-        comment="Tenure duration in months"
     )
 
     price: Mapped[Decimal] = mapped_column(
         Numeric(10, 2),
         nullable=False,
-        comment="Pricing or MRP per user per month"
     )
 
-    discount_price: Mapped[Optional[Decimal]] = mapped_column(
+    discount: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(10, 2),
         nullable=True,
-        comment="Discounted price per user per month"
     )
 
     discount_percentage: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(5, 2),
         nullable=True,
-        comment="Discount percentage"
     )
-
+    
     storage: Mapped[StorageLimit] = mapped_column(
         SAEnum(
             StorageLimit,
@@ -131,12 +112,13 @@ class Plan(SoftDeleteMixin, AuditMixin, Base):
         nullable=False,
         comment="Storage limit in GB"
     )
-    
+
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         server_default=text("TRUE"),
     )
+    
     description: Mapped[Optional[str]] = mapped_column(
         String(500),
         nullable=True,
@@ -144,7 +126,6 @@ class Plan(SoftDeleteMixin, AuditMixin, Base):
 
     def __repr__(self) -> str:
         return (
-            f"<Plan id={self.id!s} code={self.code!r} "
-            f"type={self.type.value} variant={self.variant.value}>"
+            f"<ExpansionAddon id={self.id!s} code={self.code!r} status={self.status.value}>"
         )
 
