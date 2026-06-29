@@ -275,6 +275,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    tokens: Mapped[List["UserToken"]] = relationship(
+        "UserToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     user_role: Mapped[Optional["UserRole"]] = relationship(
         "UserRole",
         back_populates="user",
@@ -417,6 +422,57 @@ class UserCredentials(Base):
 
     def __repr__(self) -> str:
         return f"<UserCredentials user_id={self.user_id} locked={self.is_locked}>"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# USER ONBOARDING & PASSWORD RESET
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class UserToken(Base):
+    """
+    Short-lived single-use token for onboarding (set password) and 
+    password reset flows. One row per issued token.
+    Deleted immediately after use.
+    """
+
+    __tablename__ = "user_tokens"
+    __table_args__ = (
+        Index("idx_user_token_jti", "jti"),
+        {
+            "comment": "Single-use tokens for onboarding and password reset links.",
+            "schema": "auth",
+        },
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("auth.users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    jti: Mapped[str] = mapped_column(
+        String(36),  # UUID
+        nullable=False,
+        unique=True,
+        comment="JWT ID. Used for single-use enforcement and revocation.",
+    )
+    purpose: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        comment="ONBOARDING | PASSWORD_RESET",
+    )
+    expires_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="Token hard expiry. 48hr for onboarding, 1hr for password reset.",
+    )
+    used_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When token was consumed. NULL = not yet used.",
+    )
+    
+    user: Mapped["User"] = relationship("User", back_populates="tokens")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
