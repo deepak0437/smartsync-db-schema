@@ -362,6 +362,17 @@ class UserCredentials(Base):
         default=0,
         comment="Lifetime count of password changes. Useful for security analytics.",
     )
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment=(
+            "True for every admin-created user at creation time (temp password "
+            "issued). Forces the change-password flow on first login before any "
+            "other endpoint becomes accessible. Set to False once the user "
+            "completes their first self-chosen password."
+        ),
+    )
     
     # max session ──────────────────────────────────────────────────────────────
     max_concurrent_sessions: Mapped[Optional[int]] = mapped_column(
