@@ -257,18 +257,17 @@ class BoardType(str, enum.Enum):
 
 
 class StorageLimit(int, enum.Enum):
-    """Storage limits in MB for different plan tiers."""
+    """Storage package labels are in GB; values are stored/calculated in MB."""
 
-    GB_20 = 20     
-    GB_30 = 30 
-    GB_50 = 50
-    GB_100 = 100
-    GB_150 = 150
-    GB_200 = 200
-    GB_250 = 250
-    GB_300 = 300
-    GB_350 = 350
-    GB_400 = 400
-    GB_450 = 450
-    GB_500 = 500
-
+    GB_20 = 20480
+    GB_30 = 30720
+    GB_50 = 51200
+    GB_100 = 102400
+    GB_150 = 153600
+    GB_200 = 204800
+    GB_250 = 256000
+    GB_300 = 307200
+    GB_350 = 358400
+    GB_400 = 409600
+    GB_450 = 460800
+    GB_500 = 512000

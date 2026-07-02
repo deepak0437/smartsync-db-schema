@@ -110,7 +110,7 @@ class ExpansionAddon(SoftDeleteMixin, AuditMixin, Base):
             create_type=False,
         ),
         nullable=False,
-        comment="Storage limit in GB"
+        comment="Storage package label in GB; enum value is in MB"
     )
 
     is_active: Mapped[bool] = mapped_column(
@@ -128,4 +128,3 @@ class ExpansionAddon(SoftDeleteMixin, AuditMixin, Base):
         return (
             f"<ExpansionAddon id={self.id!s} code={self.code!r} status={self.status.value}>"
         )
-

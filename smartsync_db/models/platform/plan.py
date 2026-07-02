@@ -130,7 +130,7 @@ class Plan(SoftDeleteMixin, AuditMixin, Base):
             create_type=False,
         ),
         nullable=False,
-        comment="Storage limit in GB"
+        comment="Storage package label in GB; enum value is in MB"
     )
     
     is_active: Mapped[bool] = mapped_column(
@@ -148,4 +148,3 @@ class Plan(SoftDeleteMixin, AuditMixin, Base):
             f"<Plan id={self.id!s} code={self.code!r} "
             f"type={self.type.value} variant={self.variant.value}>"
         )
-

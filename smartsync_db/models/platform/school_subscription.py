@@ -45,6 +45,10 @@ class SchoolSubscription(Base):
             "remaining_users >= 0",
             name="remaining_non_negative",
         ),
+        CheckConstraint(
+            "remaining_storage >= 0",
+            name="remaining_storage_non_negative",
+        ),
         # ── Indexes ──────────────────────────────────────────────────────
         # Enforces max ONE active subscription per school at DB level
         Index(
@@ -108,6 +112,12 @@ class SchoolSubscription(Base):
         comment="effective_max_users - current_assigned_user_count",
     )
 
+    remaining_storage: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Remaining storage in MB",
+    )
+
     starts_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -150,4 +160,3 @@ class SchoolSubscription(Base):
             f"status={self.status.value} users={self.remaining_users}/"
             
         )
-
