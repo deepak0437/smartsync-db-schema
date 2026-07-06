@@ -261,19 +261,6 @@ class Permission(SoftDeleteMixin, AuditMixin, Base):
         ),
     )
 
-    # ── Risk Level ─────────────────────────────────────────────────────────────
-    risk_level: Mapped[str] = mapped_column(
-        String(10),
-        nullable=False,
-        default="LOW",
-        comment=(
-            "Sensitivity of this permission. "
-            "LOW = read-only or routine. "
-            "MEDIUM = writes or side effects. "
-            "HIGH = financial, admin, or destructive operations."
-        ),
-    )
-
     # ── Status ─────────────────────────────────────────────────────────────────
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
 
@@ -290,7 +277,7 @@ class Permission(SoftDeleteMixin, AuditMixin, Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Permission code={self.code!r} risk={self.risk_level}>"
+        return f"<Permission code={self.code!r}>"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

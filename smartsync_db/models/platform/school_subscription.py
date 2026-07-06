@@ -38,7 +38,7 @@ class SchoolSubscription(Base):
     naturally or are superseded by an upgrade.
     """
 
-    __tablename__ = "school_subscription"
+    __tablename__ = "school_subscriptions"
     __table_args__ = (
         # ── CHECK constraints ────────────────────────────────────────────
         CheckConstraint(

@@ -222,6 +222,7 @@ class User(Base):
     first_name: Mapped[str] = mapped_column(String(50), nullable=False, comment="Given name.")
     middle_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, comment="Optional middle name.")
     last_name: Mapped[str] = mapped_column(String(50), nullable=False, comment="Family/surname.")
+    profile_image_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default=None)
 
     # ── Status ────────────────────────────────────────────────────────────────
     is_active: Mapped[bool] = mapped_column(
