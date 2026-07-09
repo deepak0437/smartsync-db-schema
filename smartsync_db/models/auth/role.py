@@ -421,8 +421,20 @@ class SchoolRolePermission(Base):
     )
 
     # ── Scoping ────────────────────────────────────────────────────────────────
-    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
-    school_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    tenant_id: Mapped[int] = mapped_column(
+    BigInteger,
+    ForeignKey("platform.tenants.id", ondelete="CASCADE"),
+    nullable=False,
+    index=True,
+    comment="Tenant id",
+    )
+    school_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("platform.schools.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="School id",
+    )
 
     # ── Import Direction ───────────────────────────────────────────────────────
     role_id: Mapped[int] = mapped_column(
