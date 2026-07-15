@@ -102,30 +102,44 @@ UPDATE platform.plans SET price = 85000.00, discount_price = NULL,
   END
 WHERE type = 'GROWTH' AND variant = 'SCALABLE' AND user_count = 'USERS_5000';
 
--- Capacity add-on packs — flat totals, no discount: +500 users = ₹4,500/mo;
--- +1,000 users = ₹8,000/mo. Same flat price at every tenure (unlike Plans,
--- these are never tenure-discounted) — but a real row must exist for each
--- of the 6 tenures so the frontend can look up "the addon price for
--- whatever plan tenure is currently selected" and always find a match,
--- instead of only ever having a 12-month row to fall back on.
-UPDATE platform.expansion_addons SET price = 4500.00, discount = NULL, discount_percentage = NULL
-WHERE user_count = 'PLUS_500';
-
-UPDATE platform.expansion_addons SET price = 8000.00, discount = NULL, discount_percentage = NULL
-WHERE user_count = 'PLUS_1000';
-
+-- Capacity add-on packs — each tenure has its own directly-authored flat
+-- price (cheaper for a longer commitment, same idea as Plans), not a
+-- percentage discount applied to a base rate: discount/discount_percentage
+-- stay NULL on every row, `price` itself IS the final number for that row.
+-- A real row exists for each of the 6 tenures so the frontend can look up
+-- "the addon price for whatever plan tenure is currently selected" and
+-- always find a match, instead of only ever having a 12-month row.
 INSERT INTO platform.expansion_addons (code, expansion_type, user_count, tenure, price, storage, description)
 VALUES
   ('ADDON_USER_500_1M', 'USER_CAPACITY_EXPANSION', 'PLUS_500', 'ONE_MONTH', 4500.00, 'GB_20', 'Capacity pack adding 500 users and 20GB storage for 1 month'),
-  ('ADDON_USER_500_3M', 'USER_CAPACITY_EXPANSION', 'PLUS_500', 'THREE_MONTHS', 4500.00, 'GB_20', 'Capacity pack adding 500 users and 20GB storage for 3 months'),
-  ('ADDON_USER_500_6M', 'USER_CAPACITY_EXPANSION', 'PLUS_500', 'SIX_MONTHS', 4500.00, 'GB_20', 'Capacity pack adding 500 users and 20GB storage for 6 months'),
-  ('ADDON_USER_500_24M', 'USER_CAPACITY_EXPANSION', 'PLUS_500', 'TWENTY_FOUR', 4500.00, 'GB_20', 'Capacity pack adding 500 users and 20GB storage for 24 months'),
-  ('ADDON_USER_500_36M', 'USER_CAPACITY_EXPANSION', 'PLUS_500', 'THIRTY_SIX', 4500.00, 'GB_20', 'Capacity pack adding 500 users and 20GB storage for 36 months'),
+  ('ADDON_USER_500_3M', 'USER_CAPACITY_EXPANSION', 'PLUS_500', 'THREE_MONTHS', 4275.00, 'GB_20', 'Capacity pack adding 500 users and 20GB storage for 3 months'),
+  ('ADDON_USER_500_6M', 'USER_CAPACITY_EXPANSION', 'PLUS_500', 'SIX_MONTHS', 4050.00, 'GB_20', 'Capacity pack adding 500 users and 20GB storage for 6 months'),
+  ('ADDON_USER_500_12M', 'USER_CAPACITY_EXPANSION', 'PLUS_500', 'TWELVE_MONTHS', 3825.00, 'GB_20', 'Capacity pack adding 500 users and 20GB storage for 12 months'),
+  ('ADDON_USER_500_24M', 'USER_CAPACITY_EXPANSION', 'PLUS_500', 'TWENTY_FOUR', 3510.00, 'GB_20', 'Capacity pack adding 500 users and 20GB storage for 24 months'),
+  ('ADDON_USER_500_36M', 'USER_CAPACITY_EXPANSION', 'PLUS_500', 'THIRTY_SIX', 3150.00, 'GB_20', 'Capacity pack adding 500 users and 20GB storage for 36 months'),
   ('ADDON_USER_1000_1M', 'USER_CAPACITY_EXPANSION', 'PLUS_1000', 'ONE_MONTH', 8000.00, 'GB_20', 'Capacity pack adding 1000 users and 20GB storage for 1 month'),
-  ('ADDON_USER_1000_3M', 'USER_CAPACITY_EXPANSION', 'PLUS_1000', 'THREE_MONTHS', 8000.00, 'GB_20', 'Capacity pack adding 1000 users and 20GB storage for 3 months'),
-  ('ADDON_USER_1000_6M', 'USER_CAPACITY_EXPANSION', 'PLUS_1000', 'SIX_MONTHS', 8000.00, 'GB_20', 'Capacity pack adding 1000 users and 20GB storage for 6 months'),
-  ('ADDON_USER_1000_24M', 'USER_CAPACITY_EXPANSION', 'PLUS_1000', 'TWENTY_FOUR', 8000.00, 'GB_20', 'Capacity pack adding 1000 users and 20GB storage for 24 months'),
-  ('ADDON_USER_1000_36M', 'USER_CAPACITY_EXPANSION', 'PLUS_1000', 'THIRTY_SIX', 8000.00, 'GB_20', 'Capacity pack adding 1000 users and 20GB storage for 36 months')
+  ('ADDON_USER_1000_3M', 'USER_CAPACITY_EXPANSION', 'PLUS_1000', 'THREE_MONTHS', 7600.00, 'GB_20', 'Capacity pack adding 1000 users and 20GB storage for 3 months'),
+  ('ADDON_USER_1000_6M', 'USER_CAPACITY_EXPANSION', 'PLUS_1000', 'SIX_MONTHS', 7200.00, 'GB_20', 'Capacity pack adding 1000 users and 20GB storage for 6 months'),
+  ('ADDON_USER_1000_12M', 'USER_CAPACITY_EXPANSION', 'PLUS_1000', 'TWELVE_MONTHS', 6800.00, 'GB_20', 'Capacity pack adding 1000 users and 20GB storage for 12 months'),
+  ('ADDON_USER_1000_24M', 'USER_CAPACITY_EXPANSION', 'PLUS_1000', 'TWENTY_FOUR', 6240.00, 'GB_20', 'Capacity pack adding 1000 users and 20GB storage for 24 months'),
+  ('ADDON_USER_1000_36M', 'USER_CAPACITY_EXPANSION', 'PLUS_1000', 'THIRTY_SIX', 5600.00, 'GB_20', 'Capacity pack adding 1000 users and 20GB storage for 36 months')
 ON CONFLICT (code) WHERE deleted_at IS NULL DO NOTHING;
+
+-- In case this script runs against a DB where these rows already existed
+-- with different values (e.g. from an earlier flat-price version of this
+-- script), force them to the tenure-specific prices above.
+UPDATE platform.expansion_addons SET discount = NULL, discount_percentage = NULL,
+  price = CASE tenure
+    WHEN 'ONE_MONTH' THEN 4500.00 WHEN 'THREE_MONTHS' THEN 4275.00 WHEN 'SIX_MONTHS' THEN 4050.00
+    WHEN 'TWELVE_MONTHS' THEN 3825.00 WHEN 'TWENTY_FOUR' THEN 3510.00 WHEN 'THIRTY_SIX' THEN 3150.00
+  END
+WHERE user_count = 'PLUS_500';
+
+UPDATE platform.expansion_addons SET discount = NULL, discount_percentage = NULL,
+  price = CASE tenure
+    WHEN 'ONE_MONTH' THEN 8000.00 WHEN 'THREE_MONTHS' THEN 7600.00 WHEN 'SIX_MONTHS' THEN 7200.00
+    WHEN 'TWELVE_MONTHS' THEN 6800.00 WHEN 'TWENTY_FOUR' THEN 6240.00 WHEN 'THIRTY_SIX' THEN 5600.00
+  END
+WHERE user_count = 'PLUS_1000';
 
 COMMIT;
