@@ -61,9 +61,14 @@ jobs:
           cache-to: type=gha,mode=max
 
   # Runs `alembic upgrade head` against the real prod database for each of
-  # the 3 schemas (auth/platform/payment) - via a one-off container on the
-  # EC2 (same pattern as the app deploys), not from the GitHub runner itself,
-  # since RDS lives in private subnets the runner can't reach.
+  # the 3 schemas - via a one-off container on the EC2 (same pattern as the
+  # app deploys), not from the GitHub runner itself, since RDS lives in
+  # private subnets the runner can't reach. Order is platform, auth, payment
+  # - not alphabetical: auth's migration has a hard FK to platform.schools/
+  # platform.tenants (school_role_permissions), so platform must exist
+  # first. Confirmed by actually running this against a throwaway local
+  # Postgres before ever pointing it at prod (auth-first failed with
+  # InvalidSchemaNameError: schema "platform" does not exist).
   migrate:
     needs: build
     if: github.ref == 'refs/heads/master' && github.event_name == 'push'
@@ -106,7 +111,7 @@ jobs:
           docker run --rm \
             -v /opt/smartsync/db-migrate/config.yaml:/app/etc/config/config.yaml:ro \
             473394601378.dkr.ecr.ap-south-1.amazonaws.com/smartsync-db-migrator:latest \
-            bash -c "cd /app/schemas/auth && alembic upgrade head && cd /app/schemas/platform && alembic upgrade head && cd /app/schemas/payment && alembic upgrade head"
+            bash -c "cd /app/schemas/platform && alembic upgrade head && cd /app/schemas/auth && alembic upgrade head && cd /app/schemas/payment && alembic upgrade head"
           REMOTE
           )
 
