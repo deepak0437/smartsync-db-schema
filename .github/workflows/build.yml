@@ -1,0 +1,124 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: smartsync-db-migrator
+  DEPLOY_ROLE_ARN: arn:aws:iam::473394601378:role/smartsync-github-actions-deploy
+
+jobs:
+  # No lint/test tooling exists in this repo yet (no ruff/pytest config) -
+  # a package import sanity check is the correctness gate until one exists.
+  sanity-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -c "import smartsync_db; from smartsync_db.base import Base; import smartsync_db.models.auth, smartsync_db.models.platform, smartsync_db.models.payment; print('models import OK')"
+
+  # Builds on every PR/push - proves the Dockerfile/deps aren't broken. Only
+  # pushes to ECR, with real AWS creds, on an actual push to master (the
+  # deploy role's trust policy is ref:refs/heads/master only, so a PR run
+  # can't assume it anyway).
+  build:
+    needs: sanity-check
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr-login
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.ref == 'refs/heads/master' && github.event_name == 'push' }}
+          tags: |
+            ${{ steps.ecr-login.outputs.registry || 'local' }}/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.ecr-login.outputs.registry || 'local' }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Runs `alembic upgrade head` against the real prod database for each of
+  # the 3 schemas (auth/platform/payment) - via a one-off container on the
+  # EC2 (same pattern as the app deploys), not from the GitHub runner itself,
+  # since RDS lives in private subnets the runner can't reach.
+  migrate:
+    needs: build
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run migrations via SSM
+        run: |
+          set -euo pipefail
+          # Hardcoded, not discovered via `aws ec2 describe-instances` - the
+          # deploy role only has ssm:SendCommand scoped to this instance's
+          # ARN (by Project tag), not ec2:DescribeInstances.
+          INSTANCE_ID=i-0064a91bcdacef88d
+
+          SCRIPT=$(cat <<'REMOTE'
+          set -euo pipefail
+          aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 473394601378.dkr.ecr.ap-south-1.amazonaws.com
+          docker pull 473394601378.dkr.ecr.ap-south-1.amazonaws.com/smartsync-db-migrator:latest
+
+          DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id "arn:aws:secretsmanager:ap-south-1:473394601378:secret:rds!db-53e9327b-effb-4af9-b818-55bfa5ff9b99-v4cGKy" --query SecretString --output text | python3 -c "import json,sys; print(json.load(sys.stdin)['password'])")
+
+          mkdir -p /opt/smartsync/db-migrate
+          cat > /opt/smartsync/db-migrate/config.yaml <<EOF
+          database:
+            host: smartsync-prod.c9qsmqasq5m7.ap-south-1.rds.amazonaws.com
+            port: 5432
+            name: smartsync
+            username: smartsync_app
+            password: "${DB_PASSWORD}"
+          EOF
+          chmod 600 /opt/smartsync/db-migrate/config.yaml
+
+          docker run --rm \
+            -v /opt/smartsync/db-migrate/config.yaml:/app/etc/config/config.yaml:ro \
+            473394601378.dkr.ecr.ap-south-1.amazonaws.com/smartsync-db-migrator:latest \
+            bash -c "cd /app/schemas/auth && alembic upgrade head && cd /app/schemas/platform && alembic upgrade head && cd /app/schemas/payment && alembic upgrade head"
+          REMOTE
+          )
+
+          PARAMS=$(jq -n --arg cmd "$SCRIPT" '{commands: [$cmd]}')
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "$PARAMS" \
+            --query "Command.CommandId" --output text)
+
+          aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" || true
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query "{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}" --output json
+          STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query "Status" --output text)
+          [ "$STATUS" = "Success" ]
