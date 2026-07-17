@@ -54,6 +54,8 @@ class SchoolSubscription(Base):
         Index(
             "uq_subscriptions_school_id_active",
             "school_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
         ),
         # Plan usage analytics
         Index(
