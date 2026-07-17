@@ -96,8 +96,8 @@ from sqlalchemy import (
     ForeignKey,
     SmallInteger,
     String,
-    UniqueConstraint,
     Index,
+    text,
 )
 from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -133,7 +133,7 @@ class LoginFailureReason(str, enum.Enum):
 # USER — Identity & Profile (read-heavy, write-rare)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class User(Base):
+class User(SoftDeleteMixin, Base):
     """
     Central identity record. One row per login-capable person per school.
 
@@ -160,9 +160,24 @@ class User(Base):
 
     __tablename__ = "users"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "school_id", "username", name="uq_users_tenant_school_username"),
-        UniqueConstraint("tenant_id", "school_id", "email", name="uq_users_tenant_school_email"),
-        UniqueConstraint("tenant_id", "school_id", "mobile_number", name="uq_users_tenant_school_mobile"),
+        Index(
+            "uq_users_tenant_school_username",
+            "tenant_id", "school_id", "username",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        Index(
+            "uq_users_tenant_school_email",
+            "tenant_id", "school_id", "email",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        Index(
+            "uq_users_tenant_school_mobile",
+            "tenant_id", "school_id", "mobile_number",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         Index("idx_users_tenant_school", "tenant_id", "school_id"),
         Index("idx_users_tenant_school_active", "tenant_id", "school_id", "is_active"),
         Index("idx_users_name", "last_name", "first_name"),
