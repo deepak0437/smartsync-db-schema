@@ -64,7 +64,10 @@ class IPWhitelist(SoftDeleteMixin, AuditMixin, Base):
     Restricts logins to specific IPs or ranges.
     """
     __tablename__ = "ip_whitelist"
-    __table_args__ = {"comment": "IP whitelist for tenant access control"}
+    __table_args__ = {
+        "comment": "IP whitelist for tenant access control",
+        "schema": "auth",
+    }
 
     # Foreign Keys
     tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
@@ -97,7 +100,10 @@ class AuditLog(Base):
     Immutable — records are never updated or deleted.
     """
     __tablename__ = "audit_logs"
-    __table_args__ = {"comment": "Immutable audit trail — partitioned by month"}
+    __table_args__ = {
+        "comment": "Immutable audit trail — partitioned by month",
+        "schema": "auth",
+    }
 
     # Context
     tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
@@ -144,7 +150,10 @@ class AuthEvent(Base):
     - TENANT_CREATED, TENANT_SUSPENDED
     """
     __tablename__ = "auth_events"
-    __table_args__ = {"comment": "Event outbox for reliable async event publishing"}
+    __table_args__ = {
+        "comment": "Event outbox for reliable async event publishing",
+        "schema": "auth",
+    }
 
     # Context
     tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True, comment="Owning tenant. Soft FK -> platform.tenants.id")
