@@ -12,6 +12,7 @@ Usage::
 from .enums import (
     AddonStatus,
     BoardType,
+    EmailRecipientStatus,
     HistoryEventType,
     PlanType,
     PlanVariant,
@@ -23,6 +24,8 @@ from .enums import (
     UserCount,
     CapacityExpansionPack,
 )
+from .email_send import EmailSend, EmailSendRecipient
+from .email_template import EmailTemplate
 from .expansion_addon import ExpansionAddon
 from .plan import Plan
 from .school import School
@@ -41,11 +44,15 @@ __all__ = [
     "HistoryEventType",
     "BoardType",
     "StorageLimit",
+    "EmailRecipientStatus",
     "Tenant",
     "School",
     "Plan",
     "SchoolSubscription",
     "ExpansionAddon",
     "UserCount",
-    "CapacityExpansionPack"
+    "CapacityExpansionPack",
+    "EmailTemplate",
+    "EmailSend",
+    "EmailSendRecipient",
 ]

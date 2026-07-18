@@ -271,3 +271,20 @@ class StorageLimit(int, enum.Enum):
     GB_400 = 409600
     GB_450 = 460800
     GB_500 = 512000
+
+
+class EmailRecipientStatus(str, enum.Enum):
+    """Per-recipient delivery status for an EmailSendRecipient row.
+
+    QUEUED is the initial state set when notification-api accepts the
+    publish request; the other three are populated later by polling
+    notification-service's own notification_log via its internal status
+    endpoint. UNKNOWN means that poll never found a matching log row (e.g.
+    still in flight, or the queue-to-log write hasn't landed yet).
+    """
+
+    QUEUED = "QUEUED"
+    SUCCESS = "SUCCESS"
+    FAILURE = "FAILURE"
+    SKIPPED = "SKIPPED"
+    UNKNOWN = "UNKNOWN"
