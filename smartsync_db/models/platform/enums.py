@@ -53,6 +53,7 @@ class SchoolStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
     ARCHIVED = "ARCHIVED"
+    REJECTED = "REJECTED"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

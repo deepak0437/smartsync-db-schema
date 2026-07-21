@@ -152,6 +152,25 @@ class School(SoftDeleteMixin, AuditMixin, Base):
         nullable=True,
     )
 
+    # ── Onboarding approval audit ────────────────────────────────────────
+    # Set by the Pending School Approval workflow (Platform Admin
+    # approve/reject actions). A school stays PENDING (see `status` above)
+    # until approved — only one of the approved_*/rejected_* pairs is ever
+    # populated for a given school, matching whichever action was taken.
+    approved_by: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+
+    approved_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+
+    rejected_by: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+
+    rejected_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+
+    approval_remarks: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Free-text remarks from the Platform Admin, required on reject.",
+    )
+
     # ── Relationships ────────────────────────────────────────────────────
     tenant: Mapped["Tenant"] = relationship(
         "Tenant",
